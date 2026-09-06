@@ -1,0 +1,67 @@
+{
+  "format": "nexora.stencils",
+  "version": 1,
+  "masters": [
+    {
+      "id": "chevron",
+      "name": "Chevron step",
+      "size": [
+        190,
+        80
+      ],
+      "geometry": {
+        "kind": "polygon",
+        "points": [
+          [
+            "0",
+            "0"
+          ],
+          [
+            "w*0.78",
+            "0"
+          ],
+          [
+            "w",
+            "h/2"
+          ],
+          [
+            "w*0.78",
+            "h"
+          ],
+          [
+            "0",
+            "h"
+          ],
+          [
+            "w*0.18",
+            "h/2"
+          ]
+        ]
+      },
+      "ports": [
+        {
+          "id": "in",
+          "x": "w*0.18",
+          "y": "h/2",
+          "dx": -1,
+          "dy": 0
+        },
+        {
+          "id": "out",
+          "x": "w",
+          "y": "h/2",
+          "dx": 1,
+          "dy": 0
+        }
+      ],
+      "style": {
+        "fill": "#f0ecff",
+        "stroke": "#9070ce",
+        "textColor": "#604491",
+        "fontSize": 16,
+        "strokeWidth": 1.5
+      },
+      "category": "My stencils"
+    }
+  ]
+}

@@ -1,0 +1,108 @@
+name: Test and publish GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nexora-pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check JavaScript syntax
+        run: find src -name '*.js' -print0 | xargs -0 -n1 node --check
+      - name: Build standalone test fixture
+        run: npm run build
+      - name: Run core, server, and deployment tests
+        run: npm test
+      - name: Build modular and standalone editions
+        run: npm run build:pages
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nexora-site
+          path: _site/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: nexora-site
+          path: ${{ runner.temp }}/nexora-site
+      - name: Publish tested site to gh-pages
+        env:
+          SITE_DIRECTORY: ${{ runner.temp }}/nexora-site
+        run: |
+          set -euo pipefail
+          test -s "$SITE_DIRECTORY/index.html"
+          test -f "$SITE_DIRECTORY/.nojekyll"
+          git ls-files -z | xargs -0 -r git rm -f --
+          cp -a "$SITE_DIRECTORY/." .
+          git add -A
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if ! git diff --cached --quiet; then
+            git commit -m "Deploy Nexora Diagram from $GITHUB_SHA"
+            git push origin HEAD:gh-pages
+          fi
+      - name: Request GitHub Pages build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/pages" --jq '{url: .html_url, source: .source, build_type: .build_type}'
+          gh api --method POST "repos/$GITHUB_REPOSITORY/pages/builds"
+      - name: Verify published source revision
+        env:
+          SITE_URL: https://wieslawsoltes.github.io/NexoraDiagram/
+        run: |
+          node --input-type=module <<'JS'
+          import { appendFile } from 'node:fs/promises';
+          import { setTimeout } from 'node:timers/promises';
+          const { SITE_URL: site, GITHUB_SHA: revision, GITHUB_STEP_SUMMARY: summary } = process.env;
+          for (let attempt = 0; attempt < 60; attempt++) {
+            try {
+              const response = await fetch(`${site}build-info.json?revision=${revision}&attempt=${attempt}`, { cache: 'no-store', signal: AbortSignal.timeout(15000) });
+              if (response.ok && (await response.json()).sourceRevision === revision) {
+                for (const path of ['', 'src/main.js', 'src/core/router.worker.js', 'Nexora-Diagram.html', 'tests/webgpu-smoke.html']) {
+                  const asset = await fetch(new URL(path, site), { signal: AbortSignal.timeout(15000) });
+                  if (!asset.ok) throw new Error(`${path}: HTTP ${asset.status}`);
+                  await asset.arrayBuffer();
+                }
+                await appendFile(summary, `## Nexora Diagram published\n\n[Open the app](${site})\n\nVerified source revision: \`${revision}\`.\n`);
+                console.log(`Published and verified ${site} at ${revision}`);
+                process.exit(0);
+              }
+            } catch (error) { console.log(`Publication check ${attempt + 1}: ${error.message}`); }
+            await setTimeout(5000);
+          }
+          throw new Error('GitHub Pages did not serve the expected source revision within the verification window.');
+          JS
