@@ -1,0 +1,208 @@
+TAP version 13
+# Subtest: demo has separate semantic and visual records and valid stable identities
+ok 1 - demo has separate semantic and visual records and valid stable identities
+  ---
+  duration_ms: 5.937189
+  type: 'test'
+  ...
+# Subtest: safe expression interpreter supports arithmetic and functions
+ok 2 - safe expression interpreter supports arithmetic and functions
+  ---
+  duration_ms: 0.509642
+  type: 'test'
+  ...
+# Subtest: bindings preserve missing-field diagnostics and block prototype traversal
+ok 3 - bindings preserve missing-field diagnostics and block prototype traversal
+  ---
+  duration_ms: 1.051125
+  type: 'test'
+  ...
+# Subtest: all built-in shapes triangulate with area conservation
+ok 4 - all built-in shapes triangulate with area conservation
+  ---
+  duration_ms: 4.391169
+  type: 'test'
+  ...
+# Subtest: custom concave programmable master is validated and triangulates
+ok 5 - custom concave programmable master is validated and triangulates
+  ---
+  duration_ms: 1.031248
+  type: 'test'
+  ...
+# Subtest: spatial index updates, deletes and handles oversized objects
+ok 6 - spatial index updates, deletes and handles oversized objects
+  ---
+  duration_ms: 0.484075
+  type: 'test'
+  ...
+# Subtest: min heap returns stable increasing priorities
+ok 7 - min heap returns stable increasing priorities
+  ---
+  duration_ms: 0.337385
+  type: 'test'
+  ...
+# Subtest: orthogonal router avoids a blocking wall and retains exact endpoints
+ok 8 - orthogonal router avoids a blocking wall and retains exact endpoints
+  ---
+  duration_ms: 1.631542
+  type: 'test'
+  ...
+# Subtest: router flags an impossible endpoint rather than claiming clearance
+ok 9 - router flags an impossible endpoint rather than claiming clearance
+  ---
+  duration_ms: 0.628379
+  type: 'test'
+  ...
+# Subtest: connector escapes endpoints and supports explicit waypoints
+ok 10 - connector escapes endpoints and supports explicit waypoints
+  ---
+  duration_ms: 0.557036
+  type: 'test'
+  ...
+# Subtest: patch transaction coalesces previews into a single reversible command
+ok 11 - patch transaction coalesces previews into a single reversible command
+  ---
+  duration_ms: 1.124018
+  type: 'test'
+  ...
+# Subtest: failed transactions roll back geometry and do not enter history
+ok 12 - failed transactions roll back geometry and do not enter history
+  ---
+  duration_ms: 0.49119
+  type: 'test'
+  ...
+# Subtest: history is bounded and branching invalidates redo
+ok 13 - history is bounded and branching invalidates redo
+  ---
+  duration_ms: 0.866658
+  type: 'test'
+  ...
+# Subtest: container ownership, visibility and layer locks are inherited
+ok 14 - container ownership, visibility and layer locks are inherited
+  ---
+  duration_ms: 0.497456
+  type: 'test'
+  ...
+# Subtest: deletion removes incident edges, descendants and related constraints
+ok 15 - deletion removes incident edges, descendants and related constraints
+  ---
+  duration_ms: 0.736831
+  type: 'test'
+  ...
+# Subtest: duplicate rewires internal edges to new identities
+ok 16 - duplicate rewires internal edges to new identities
+  ---
+  duration_ms: 0.721344
+  type: 'test'
+  ...
+# Subtest: persistent alignment follows the edited member
+ok 17 - persistent alignment follows the edited member
+  ---
+  duration_ms: 0.434022
+  type: 'test'
+  ...
+# Subtest: locked conflicting constraints report nonzero residual
+ok 18 - locked conflicting constraints report nonzero residual
+  ---
+  duration_ms: 0.234802
+  type: 'test'
+  ...
+# Subtest: distribution produces equal gaps and preserves endpoints
+ok 19 - distribution produces equal gaps and preserves endpoints
+  ---
+  duration_ms: 0.397485
+  type: 'test'
+  ...
+# Subtest: iterative SCC and auto layout support cycles without recursion
+ok 20 - iterative SCC and auto layout support cycles without recursion
+  ---
+  duration_ms: 72.48562
+  type: 'test'
+  ...
+# Subtest: CSV parser handles escaped quotes, CRLF and quoted multiline fields
+ok 21 - CSV parser handles escaped quotes, CRLF and quoted multiline fields
+  ---
+  duration_ms: 0.536613
+  type: 'test'
+  ...
+# Subtest: CSV binding changes shape data without changing identities
+ok 22 - CSV binding changes shape data without changing identities
+  ---
+  duration_ms: 0.274947
+  type: 'test'
+  ...
+# Subtest: project parser rejects cycles, corrupt endpoints and prototype keys
+ok 23 - project parser rejects cycles, corrupt endpoints and prototype keys
+  ---
+  duration_ms: 0.338155
+  type: 'test'
+  ...
+# Subtest: project roundtrip is lossless
+ok 24 - project roundtrip is lossless
+  ---
+  duration_ms: 1.684274
+  type: 'test'
+  ...
+# Subtest: validation reports unresolved labels and decisions with missing branches
+ok 25 - validation reports unresolved labels and decisions with missing branches
+  ---
+  duration_ms: 0.700568
+  type: 'test'
+  ...
+# Subtest: fractional ports preserve exact endpoints after obstacle routing
+ok 26 - fractional ports preserve exact endpoints after obstacle routing
+  ---
+  duration_ms: 0.434376
+  type: 'test'
+  ...
+# Subtest: locked container descendants are fixed variables in the layout solver
+ok 27 - locked container descendants are fixed variables in the layout solver
+  ---
+  duration_ms: 0.328582
+  type: 'test'
+  ...
+# Subtest: imports reject unsafe identities, unknown masters and renderer style injection
+ok 28 - imports reject unsafe identities, unknown masters and renderer style injection
+  ---
+  duration_ms: 0.649009
+  type: 'test'
+  ...
+# Subtest: imports reject missing connector layers and invalid constraint axes
+ok 29 - imports reject missing connector layers and invalid constraint axes
+  ---
+  duration_ms: 0.589571
+  type: 'test'
+  ...
+# Subtest: duplicates receive a higher draw order than the original shape
+ok 30 - duplicates receive a higher draw order than the original shape
+  ---
+  duration_ms: 0.189811
+  type: 'test'
+  ...
+# Subtest: all built-in silhouettes can be saved as reusable polygon stencils
+ok 31 - all built-in silhouettes can be saved as reusable polygon stencils
+  ---
+  duration_ms: 21.468286
+  type: 'test'
+  ...
+# Subtest: shapes and connectors work after deleting the default diagram layer
+ok 32 - shapes and connectors work after deleting the default diagram layer
+  ---
+  duration_ms: 0.312496
+  type: 'test'
+  ...
+# Subtest: local development server serves modules, restricts methods and hashes the standalone CSP
+ok 33 - local development server serves modules, restricts methods and hashes the standalone CSP
+  ---
+  duration_ms: 146.113123
+  type: 'test'
+  ...
+1..33
+# tests 33
+# suites 0
+# pass 33
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 248.182783

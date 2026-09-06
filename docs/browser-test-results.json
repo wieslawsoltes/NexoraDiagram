@@ -1,0 +1,198 @@
+{
+  "mode": "in-memory Canvas fixture",
+  "checks": [
+    {
+      "name": "initial 9 connectors have obstacle-free routes",
+      "passed": true
+    },
+    {
+      "name": "router runs in a real Web Worker",
+      "passed": true
+    },
+    {
+      "name": "canvas display list contains editable scene content",
+      "passed": true
+    },
+    {
+      "name": "ribbon, stencils and inspector exist",
+      "passed": true
+    },
+    {
+      "name": "pointer drag changes document geometry",
+      "passed": true,
+      "details": {
+        "id": "n_mtq6bzfu_10",
+        "x": 350,
+        "y": 252,
+        "w": 178,
+        "h": 80,
+        "z": 8,
+        "fill": "#f0f7ff",
+        "stroke": "#7b9cbe",
+        "textColor": "#253b53",
+        "fontSize": 16,
+        "strokeWidth": 1.5
+      }
+    },
+    {
+      "name": "a whole drag creates one undo command",
+      "passed": true
+    },
+    {
+      "name": "keyboard undo restores geometry",
+      "passed": true
+    },
+    {
+      "name": "keyboard redo reapplies drag",
+      "passed": true
+    },
+    {
+      "name": "inspector edits mutate width",
+      "passed": true
+    },
+    {
+      "name": "corner handle resizes geometry",
+      "passed": true
+    },
+    {
+      "name": "double-click label editor commits real node text",
+      "passed": true
+    },
+    {
+      "name": "data-bound label is resolved in the renderer",
+      "passed": true
+    },
+    {
+      "name": "palette changes actual fill",
+      "passed": true
+    },
+    {
+      "name": "duplicate creates a new semantic shape",
+      "passed": true
+    },
+    {
+      "name": "delete removes the duplicated shape",
+      "passed": true
+    },
+    {
+      "name": "delete is undoable",
+      "passed": true
+    },
+    {
+      "name": "programmable stencil registers safely",
+      "passed": true
+    },
+    {
+      "name": "custom stencil instantiates a real shape",
+      "passed": true
+    },
+    {
+      "name": "layer visibility is persisted in the model",
+      "passed": true
+    },
+    {
+      "name": "layer lock changes semantic editing rules",
+      "passed": true
+    },
+    {
+      "name": "CSV import updates matching shape data",
+      "passed": true
+    },
+    {
+      "name": "bound text updates after CSV",
+      "passed": true
+    },
+    {
+      "name": "SVG export contains vector paths and text",
+      "passed": true
+    },
+    {
+      "name": "project export contains semantic and visual models",
+      "passed": true
+    },
+    {
+      "name": "add page creates independent graph",
+      "passed": true
+    },
+    {
+      "name": "port dragging creates a semantic connector",
+      "passed": true
+    },
+    {
+      "name": "connector endpoints reference stable shape identities",
+      "passed": true
+    },
+    {
+      "name": "connector double-click adds an editable waypoint",
+      "passed": true
+    },
+    {
+      "name": "container stores parent-child relationships",
+      "passed": true
+    },
+    {
+      "name": "moving container moves all members by the same delta",
+      "passed": true,
+      "details": {
+        "before": [
+          {
+            "x": 200,
+            "y": 260
+          },
+          {
+            "x": 570,
+            "y": 260
+          },
+          {
+            "x": 176,
+            "y": 205
+          }
+        ],
+        "after": [
+          {
+            "x": 244,
+            "y": 285
+          },
+          {
+            "x": 614,
+            "y": 285
+          },
+          {
+            "x": 220,
+            "y": 230
+          }
+        ]
+      }
+    },
+    {
+      "name": "validation panel displays computed diagnostics",
+      "passed": true
+    },
+    {
+      "name": "project import restores saved page graph",
+      "passed": true
+    },
+    {
+      "name": "autosave invokes injected persistence with a document snapshot",
+      "passed": true
+    },
+    {
+      "name": "mobile canvas retains positive drawable dimensions",
+      "passed": true
+    },
+    {
+      "name": "no uncaught application errors",
+      "passed": true,
+      "details": []
+    },
+    {
+      "name": "no browser console errors",
+      "passed": true,
+      "details": []
+    }
+  ],
+  "errors": [],
+  "consoleErrors": [],
+  "backend": "Canvas 2D",
+  "webgpuBrowserTested": false
+}
