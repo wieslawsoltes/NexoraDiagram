@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#55327a">
+  <meta name="description" content="Nexora Diagram — structured diagrams, thoughtfully connected. A local-first WebGPU diagram editor.">
+  <title>Nexora Diagram</title>
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<div id="app">
+  <header class="titlebar">
+    <a class="brand" href="./" aria-label="Nexora Diagram home"><span class="brand-mark"><i></i><i></i><i></i></span><strong>NEXORA</strong><span class="brand-product">Diagram</span></a>
+    <span class="title-divider"></span><div class="quick-actions" id="quick-actions"></div>
+    <button id="document-title" class="document-title" data-action="rename-document" title="Rename document">Purchase approval workflow</button>
+    <span class="title-spacer"></span><span class="local-badge">LOCAL WORKSPACE</span><button class="avatar" data-action="help" title="Help and keyboard shortcuts">N</button>
+  </header>
+  <nav class="tabs" aria-label="Ribbon tabs" id="ribbon-tabs"></nav>
+  <section class="ribbon" id="ribbon" aria-label="Diagram tools"></section>
+  <main class="workspace">
+    <aside class="stencils sidebar" aria-label="Shapes and stencils">
+      <div class="sidebar-header"><h2>Shapes</h2><button class="icon-button" data-action="custom-stencil" title="Create programmable stencil" id="custom-stencil-button"></button></div>
+      <div class="left-tabs"><button class="selected" data-left-tab="stencils">Stencils</button><button data-left-tab="outline">Outline</button></div>
+      <div class="stencil-search"><span id="search-icon"></span><input id="shape-search" placeholder="Search shapes" aria-label="Search shapes"><kbd>⌕</kbd></div>
+      <div id="stencil-list" class="stencil-list"></div>
+      <div id="outline-list" class="outline-list" hidden></div>
+      <div class="stencil-footer"><span class="footer-spark" id="footer-spark"></span><strong>Made to connect.</strong><p>Drag a shape onto the page.<br>Connect ideas from any port.</p><button data-action="custom-stencil" class="text-button">Create a stencil <span>↗</span></button></div>
+    </aside>
+    <section class="editor-area" aria-label="Diagram editor">
+      <div class="editor-heading"><div class="breadcrumb"><span id="breadcrumb-icon"></span><span id="page-heading">Approval flow</span><span class="heading-separator">/</span><span class="muted">Diagram</span></div><div class="editor-heading-actions"><span id="save-status" class="save-status">Ready</span><button class="icon-button" data-action="fit" title="Fit page (F)" id="fit-heading"></button><button class="export-button" data-action="export-svg" id="export-button">Export SVG</button><button class="icon-button mobile-properties" data-action="toggle-properties" title="Properties">☷</button></div></div>
+      <div class="viewport" id="viewport">
+        <canvas class="ruler-top" id="ruler-top" aria-hidden="true"></canvas><canvas class="ruler-left" id="ruler-left" aria-hidden="true"></canvas><div class="ruler-corner"></div>
+        <div class="stage" id="stage" tabindex="0" role="application" aria-label="Editable diagram canvas. V selects, C connects, T adds text, F fits page. Use the outline and properties panel for keyboard editing.">
+          <canvas id="gpu-canvas" class="drawing-canvas" hidden aria-hidden="true"></canvas><canvas id="fallback-canvas" class="drawing-canvas" aria-hidden="true"></canvas>
+          <svg id="overlay" class="overlay" aria-hidden="true"></svg>
+          <div class="canvas-tool-hint" id="canvas-tool-hint"><kbd>Space</kbd> to pan<span>·</span><kbd>Ctrl</kbd> + scroll to zoom</div>
+          <div class="floating-tools" id="floating-tools"></div>
+          <canvas id="minimap" class="minimap" width="180" height="122" title="Click to navigate" hidden></canvas>
+          <div id="empty-page" class="empty-page" hidden><span>Every idea starts with a shape.</span><p>Drag one from your stencils, or press T to add text.</p></div>
+        </div>
+        <section class="validation-panel" id="validation-panel" hidden><div class="validation-header"><strong id="validation-heading">Diagram validation</strong><button class="icon-button" data-action="close-validation" aria-label="Close validation">×</button></div><div id="validation-results"></div></section>
+      </div>
+      <footer class="pagebar"><div class="pagebar-tools"><button data-action="previous-page" title="Previous page">‹</button><button data-action="next-page" title="Next page">›</button></div><div id="page-tabs" class="page-tabs"></div><button class="new-page" data-action="add-page" title="Add page">+</button><span class="pagebar-spacer"></span><span id="page-count" class="muted"></span></footer>
+    </section>
+    <aside class="inspector sidebar" id="inspector" aria-label="Properties">
+      <div class="sidebar-header"><h2 id="inspector-title">Properties</h2><button class="icon-button" data-action="toggle-properties" title="Toggle properties" id="properties-icon"></button></div>
+      <div class="inspector-tabs"><button data-inspector-tab="format" class="selected">Format</button><button data-inspector-tab="data">Shape data</button><button data-inspector-tab="layers">Layers</button></div>
+      <div id="inspector-content" class="inspector-content"></div>
+      <div class="inspector-bottom"><span class="connection-indicator"></span>Semantic diagram · stable identities</div>
+    </aside>
+  </main>
+  <footer class="statusbar"><span id="status-message">Ready</span><span class="status-divider"></span><span id="selection-count">No selection</span><span class="status-spacer"></span><button id="backend-badge" data-action="engine-info"><i></i>Initializing</button><span id="render-stats" class="muted"></span><span class="status-divider"></span><button data-action="zoom-out" title="Zoom out">−</button><input id="zoom-slider" type="range" min="15" max="300" value="75" aria-label="Zoom"><button data-action="zoom-in" title="Zoom in">+</button><button id="zoom-label" data-action="zoom-100">75%</button><button data-action="fit" title="Fit page" id="fit-status"></button></footer>
+</div>
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+<dialog id="dialog"><form method="dialog" id="dialog-form"><div class="dialog-header"><h2 id="dialog-title"></h2><button type="button" data-action="close-dialog" aria-label="Close dialog">×</button></div><div id="dialog-body"></div><div id="dialog-footer" class="dialog-footer"></div></form></dialog>
+<input type="file" id="project-file" accept=".json,.nexora" hidden><input type="file" id="csv-file" accept=".csv,text/csv" hidden>
+<noscript>Nexora Diagram requires JavaScript to edit diagrams.</noscript>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
