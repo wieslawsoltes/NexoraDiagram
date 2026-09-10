@@ -76,7 +76,7 @@ export function resizeGeometry(original, handle, world, { proportional = false, 
   if (south) h = p.y - (centered ? center.y : o.y);
   if (north) h = (centered ? center.y : o.y + o.h) - p.y;
   if (centered) { if (east || west) w *= 2; if (north || south) h *= 2; }
-  w = clamp(w, minimum, 100000); h = clamp(h, minimum, 100000);
+  w = clamp(w, minimum, 1e6); h = clamp(h, minimum, 1e6);
   if (proportional) {
     const ratio = o.w / o.h;
     if (!(north || south)) h = w / ratio;
@@ -84,7 +84,7 @@ export function resizeGeometry(original, handle, world, { proportional = false, 
     else if (Math.abs(w / o.w - 1) > Math.abs(h / o.h - 1)) h = w / ratio;
     else w = h * ratio;
     const factor = Math.max(minimum / w, minimum / h, 1); w *= factor; h *= factor;
-    const limit = Math.min(1, 100000 / w, 100000 / h); w *= limit; h *= limit;
+    const limit = Math.min(1, 1e6 / w, 1e6 / h); w *= limit; h *= limit;
   }
   const x = centered || !(east || west) ? center.x - w / 2 : west ? o.x + o.w - w : o.x;
   const y = centered || !(north || south) ? center.y - h / 2 : north ? o.y + o.h - h : o.y;

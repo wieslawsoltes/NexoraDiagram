@@ -6,7 +6,7 @@ NEXORA_GPU=1 additionally requires actual WebGPU shader/command completion (HTTP
 """
 import asyncio, json, os
 from pathlib import Path
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, expect
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'test-results'
 OUT.mkdir(exist_ok=True)
@@ -32,6 +32,10 @@ async def run():
         else:
             await page.goto(os.getenv('NEXORA_URL', 'http://127.0.0.1:8080') + ('' if GPU else '?renderer=canvas'), wait_until='networkidle')
         await page.wait_for_function('window.nexora && nexora.editor && nexora.routing.routes.size > 0')
+        if GPU:
+            # A fallback is never counted as GPU success; wait for asynchronous pipeline creation.
+            await page.wait_for_function("nexora.renderer.mode==='WebGPU'", timeout=15000)
+            REPORT['initialBackend'] = await page.evaluate('nexora.renderer.mode')
         if FIXTURE:
             await page.evaluate("nexora.persistence = {save: async doc => window.__saved=structuredClone(doc)}")
         await page.evaluate("""() => { const a=nexora; a.cancelInteraction(); a.store.transact('Empty test canvas',()=>{a.page.graph={nodes:{},edges:{}};a.page.view={nodes:{},edges:{},nextZ:1};a.page.constraints=[];a.page.width=1320;a.page.height=900;a.page.originX=0;a.page.originY=0;a.page.canvasMode='fixed';});a.select([]);a.snap=false;a.maintainConstraints=false;a.camera.x=30;a.camera.y=30;a.camera.zoom=1;a.cameraChanged(); }""")
@@ -68,6 +72,7 @@ async def run():
         check('free line endpoint can be repositioned',abs(g['w']-280)<.01 and abs(g['h']-35)<.01,g)
         rectangle=await draw('rectangle',(120,220),(260,320)); original=await geometry()
         await tool('pointer')
+        await expect(page.locator('[data-grip]')).to_have_count(9)
         check('all eight resize grips are visible',await page.locator('[data-grip]').count()==9)
         for handle,fx,fy,dx,dy in [('n',.5,0,0,-20),('e',1,.5,25,0),('s',.5,1,0,20),('w',0,.5,-25,0),('nw',0,0,-20,-20),('ne',1,0,20,-20),('se',1,1,20,20),('sw',0,1,-20,20)]:
             await evaluate('([id,g])=>{Object.assign(nexora.page.view.nodes[id],g);nexora.select([id]);nexora.requestFrame(true)}',[rectangle,original])
@@ -90,6 +95,8 @@ async def run():
         curve=await draw('bezier',(400,220),(630,270)); g=await geometry()
         check('cubic curve stores four exact control points',g['pathMode']=='cubic' and len(g['path'])==4,g)
         await evaluate("nexora.action('edit-points')")
+        # Overlay updates are scheduled with requestAnimationFrame on both renderers.
+        await expect(page.locator('[data-grip^="point-"]')).to_have_count(4)
         check('curve control-point handles are exposed',await page.locator('[data-grip^="point-"]').count()==4)
         arc=await draw('arc',(400,350),(650,380)); g=await geometry()
         check('arc stores quadratic controls',g['pathMode']=='quadratic' and len(g['path'])==3,g)
@@ -116,7 +123,8 @@ async def run():
         await page.locator('[data-draw-style="opacity"]').press('Tab')
         g=await geometry()
         check('stroke patterns, weights, joins and opacity modify the document',g['dash']=='dashdot' and g['strokeWidth']==5 and g['lineJoin']=='bevel' and g['opacity']==.7,g)
-        await evaluate('nexora.requestFrame(true)'); await page.wait_for_timeout(80)
+        await evaluate('nexora.requestFrame(true)')
+        await page.wait_for_function('(id)=>nexora.renderer.scene.primitives.some(p=>p.id===id&&p.dashArray.length===4&&p.opacity===.7)', arg=polygon)
         check('display list contains stroke style rather than an overlay',await evaluate('(id)=>nexora.renderer.scene.primitives.some(p=>p.id===id&&p.dashArray.length===4&&p.opacity===.7)',polygon))
         # Select-all movement from blank space inside the bounding rectangle.
         await evaluate("nexora.action('select-all')"); await tool('pointer')
