@@ -1,0 +1,65 @@
+name: Peer lifecycle diagnostics
+on:
+  push:
+    branches: ['feat/advanced-authoring-collaboration']
+    paths: ['.github/workflows/peer-diagnostic.yml']
+permissions:
+  contents: read
+jobs:
+  diagnostics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Prepare the unmodified HTTP application and browser suite
+        run: |
+          mkdir -p test-results
+          npm run build
+          python3 -m venv /tmp/peer-env
+          /tmp/peer-env/bin/pip install playwright==1.57.0 pillow==11.3.0
+          /tmp/peer-env/bin/python -m playwright install --with-deps chromium
+          node serve.mjs > test-results/server.log 2>&1 &
+          curl --fail --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:8080/ > /dev/null
+      - name: Record transport failure details without changing assertions
+        id: peers
+        continue-on-error: true
+        env:
+          NEXORA_URL: http://127.0.0.1:8080
+        run: |
+          /tmp/peer-env/bin/python - <<'PY'
+          import asyncio, json, runpy
+          from playwright.async_api import Page
+          original = Page.evaluate
+          async def observed(self, expression, *args, **kwargs):
+              result = await original(self, expression, *args, **kwargs)
+              if expression == '!nexora.collaboration.lastError':
+                  detail = await original(self, '({error:nexora.collaboration.lastError,ready:nexora.collaboration.ready,connections:[...nexora.collaboration.connections].map(p=>({state:p.connectionState,ice:p.iceConnectionState})),channels:[...nexora.collaboration.channels].map(c=>c.readyState)})')
+                  print('TRANSPORT_DIAGNOSTIC', json.dumps(detail), flush=True)
+              return result
+          Page.evaluate = observed
+          runpy.run_path('tests/advanced_browser.py', run_name='__main__')
+          PY
+      - name: Independent advanced GPU check
+        id: gpu
+        continue-on-error: true
+        env:
+          NEXORA_URL: http://127.0.0.1:8080
+          NEXORA_GPU: '1'
+        run: /tmp/peer-env/bin/python tests/advanced_browser.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: peer-diagnostics
+          path: test-results/
+          retention-days: 7
+      - name: Preserve failing suite status
+        if: steps.peers.outcome == 'failure' || steps.gpu.outcome == 'failure'
+        run: exit 1
