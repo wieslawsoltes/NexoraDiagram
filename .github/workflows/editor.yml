@@ -1,0 +1,43 @@
+name: Editor regression tests
+
+on:
+  push:
+    branches: [main, 'feat/drawing-canvas-selection']
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nexora-editor-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  editor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Build and test
+        run: |
+          npm run build
+          npm test
+          npm run build:pages
+      - name: Capture reproducible source
+        if: always()
+        run: git archive --format=tar HEAD > editor-source.tar
+      - name: Upload source and test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: editor-verification
+          path: |
+            editor-source.tar
+            test-results/
+          retention-days: 7
