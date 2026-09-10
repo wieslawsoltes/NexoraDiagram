@@ -1,0 +1,75 @@
+name: Editor regression tests
+
+on:
+  push:
+    branches: [main, 'feat/drawing-canvas-selection']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: nexora-editor-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  editor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Check syntax, build, and run core regressions
+        run: |
+          mkdir -p test-results
+          find src -name '*.js' -print0 | xargs -0 -n1 node --check
+          npm run build
+          npm test | tee test-results/core.tap
+          npm run build:pages
+      - name: Install isolated browser test environment
+        run: |
+          python3 -m venv /tmp/nexora-browser-env
+          /tmp/nexora-browser-env/bin/pip install playwright==1.57.0
+          /tmp/nexora-browser-env/bin/python -m playwright install --with-deps chromium
+      - name: Start modular HTTP application
+        run: |
+          node serve.mjs > test-results/server.log 2>&1 &
+          curl --fail --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:8080/ > /dev/null
+      - name: Existing editor browser regressions
+        env:
+          NEXORA_URL: http://127.0.0.1:8080
+        run: /tmp/nexora-browser-env/bin/python tests/browser_test.py
+      - name: Drawing, selection, page, export, and persistence regressions
+        env:
+          NEXORA_URL: http://127.0.0.1:8080
+        run: |
+          /tmp/nexora-browser-env/bin/python tests/editor_browser.py
+          cp test-results/drawing-desktop.png test-results/drawing-canvas-desktop.png
+          cp test-results/drawing-mobile.png test-results/drawing-canvas-mobile.png
+      - name: Require WebGPU shader compilation and command completion
+        env:
+          NEXORA_URL: http://127.0.0.1:8080
+          NEXORA_GPU: '1'
+        run: /tmp/nexora-browser-env/bin/python tests/editor_browser.py
+      - name: Capture reproducible source
+        if: always()
+        run: git archive --format=tar HEAD > editor-source.tar
+      - name: Upload source, reports, and browser screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: editor-verification
+          path: |
+            editor-source.tar
+            test-results/
+          retention-days: 7

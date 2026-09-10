@@ -1,3 +1,7 @@
+import { installDrawing } from './ui/drawing.js';
+import { geometryBounds } from './core/drawing.js';
+import { selectionBox } from './core/editing.js';
+import { pageBounds, contentBounds, UNIT_SCALE } from './core/page.js';
 import { DocumentStore } from './core/history.js';
 import { createPage, createDocument, addNode, addEdge, uid, isVisible, isLocked, selectionBounds, descendants, assignParent } from './core/model.js';
 import { getMaster, getPorts, shapeGeometry, isContainer } from './core/stencils.js';
@@ -28,7 +32,7 @@ export class DiagramApp {
   get doc() { return this.store.doc; }
   get page() { return this.doc.pages[this.pageId]; }
   async initialize() {
-    this.ui.initialize(); installActions(this); installInteractions(this);
+    installDrawing(this); this.ui.initialize(); installActions(this); installInteractions(this);
     this.resizeObserver = new ResizeObserver(() => this.resize()); this.resizeObserver.observe($('stage'));
     this.syncIndex(); this.routing.update(this.doc, this.page, true); this.resize(); this.fitPage();
     const first = Object.values(this.page.graph.nodes).find(n => n.data.key === 'REQ01'); if (first) this.select([first.id]);
@@ -65,8 +69,8 @@ export class DiagramApp {
   syncIndex() {
     const p = this.page, live = new Set(); this.drawOrder = new Map(Object.keys(p.graph.nodes).map((id, i) => [id, i]));
     for (const n of Object.values(p.graph.nodes)) if (isVisible(p, n.id)) {
-      const g = p.view.nodes[n.id], record = [g.x, g.y, g.w, g.h, n.master].join(':'); live.add(n.id);
-      if (this.indexRecords.get(n.id) !== record) { this.index.set(n.id, g, { id: n.id, kind: 'node' }); this.indexRecords.set(n.id, record); }
+      const g = p.view.nodes[n.id], record = [g.x, g.y, g.w, g.h, g.rotation, g.strokeWidth, n.master].join(':'); live.add(n.id);
+      if (this.indexRecords.get(n.id) !== record) { this.index.set(n.id, inflate(geometryBounds(g), (g.strokeWidth || 0) * 3 + 12), { id: n.id, kind: 'node' }); this.indexRecords.set(n.id, record); }
     }
     for (const e of Object.values(p.graph.edges)) if (isVisible(p, e.id)) {
       const route = this.routing.routes.get(e.id); if (!route?.points.length) continue; live.add(e.id);
@@ -87,7 +91,7 @@ export class DiagramApp {
   pointerPosition(event) { const r = $('stage').getBoundingClientRect(); return { x: event.clientX - r.left, y: event.clientY - r.top }; }
   visibleBounds(padding = 0) { return inflate({ x: -this.camera.x / this.camera.zoom, y: -this.camera.y / this.camera.zoom, w: this.camera.width / this.camera.zoom, h: this.camera.height / this.camera.zoom }, padding); }
   setZoom(zoom, screen = { x: this.camera.width / 2, y: this.camera.height / 2 }) {
-    const world = this.screenToWorld(screen); this.camera.zoom = clamp(zoom, .12, 4); this.camera.x = screen.x - world.x * this.camera.zoom; this.camera.y = screen.y - world.y * this.camera.zoom; this.cameraChanged();
+    const world = this.screenToWorld(screen); this.camera.zoom = clamp(zoom, .001, 4); this.camera.x = screen.x - world.x * this.camera.zoom; this.camera.y = screen.y - world.y * this.camera.zoom; this.cameraChanged();
   }
   cameraChanged() {
     const view = this.visibleBounds(); const b = this.cullingBounds;
@@ -96,12 +100,12 @@ export class DiagramApp {
   }
   fitBounds(b, padding = 34) {
     if (!b) return this.fitPage(); const c = this.camera;
-    c.zoom = clamp(Math.min((c.width - padding * 2) / Math.max(1, b.w), (c.height - padding * 2) / Math.max(1, b.h)), .12, 2);
+    c.zoom = clamp(Math.min((c.width - padding * 2) / Math.max(1, b.w), (c.height - padding * 2) / Math.max(1, b.h)), .001, 2);
     c.x = (c.width - b.w * c.zoom) / 2 - b.x * c.zoom; c.y = (c.height - b.h * c.zoom) / 2 - b.y * c.zoom; this.cameraChanged();
   }
-  fitPage() { this.fitBounds({ x: 0, y: 0, w: this.page.width, h: this.page.height }, this.camera.width < 450 ? 17 : 35); }
+  fitPage() { this.fitBounds(this.page.canvasMode === 'infinite' ? contentBounds(this.page, null, this.routing.routes) || pageBounds(this.page) : pageBounds(this.page), this.camera.width < 450 ? 17 : 35); }
   switchPage(id) {
-    if (!this.doc.pages[id]) return; this.finishLabelEdit?.(); if (this.store.pending) this.store.cancel(); this.drag = null; this.connectSource = null;
+    if (!this.doc.pages[id]) return; this.finishLabelEdit?.(); this.editor?.cancel(); if (this.store.pending) this.store.cancel(); this.drag = null; this.connectSource = null;
     this.pageCameras.set(this.pageId, { ...this.camera }); this.pageId = id; this.selection.clear(); this.activeLayer = this.page.layers[0].id;
     const previous = this.pageCameras.get(id); if (previous) Object.assign(this.camera, { x: previous.x, y: previous.y, zoom: previous.zoom }); else this.fitPage();
     this.routing.update(this.doc, this.page, true); this.clearIndex(); this.ui.renderAll(); this.requestFrame(true);
@@ -110,14 +114,15 @@ export class DiagramApp {
     if (!additive) this.selection.clear(); for (const id of ids) if ((this.page.graph.nodes[id] || this.page.graph.edges[id]) && isVisible(this.page, id)) this.selection.add(id);
     this.ui.renderInspector(); if (this.ui.leftTab === 'outline') this.ui.renderOutline(); this.ui.updateStatus(); this.requestFrame();
   }
-  setTool(tool) { this.finishLabelEdit?.(); this.tool = tool; this.connectSource = null; this.connectPoint = null; this.ui.renderRibbon(); this.ui.renderFloatingTools(); this.ui.setStatus(tool === 'connect' ? 'Drag from one shape to another, or click source then target' : tool === 'hand' ? 'Drag the canvas to pan' : 'Ready'); $('stage').style.cursor = tool === 'hand' ? 'grab' : tool === 'connect' ? 'crosshair' : 'default'; this.requestFrame(); }
+  setTool(tool) { this.finishLabelEdit?.(); if (this.drag) this.cancelInteraction?.(); this.editor?.toolChanged(); this.tool = tool; this.connectSource = null; this.connectPoint = null; this.ui.renderRibbon(); this.ui.renderFloatingTools(); this.ui.setStatus(tool === 'connect' ? 'Drag from one shape to another, or click source then target' : tool === 'hand' ? 'Drag the canvas to pan' : 'Ready'); $('stage').style.cursor = tool === 'hand' ? 'grab' : !['pointer', 'hand'].includes(tool) ? 'crosshair' : 'default'; this.requestFrame(); }
   hitTest(point) {
     const candidates = this.index.query(inflate({ ...point, w: 0, h: 0 }, 7 / this.camera.zoom));
     const nodes = candidates.filter(c => c.kind === 'node').sort((a, b) => (this.page.view.nodes[b.id].z || 0) - (this.page.view.nodes[a.id].z || 0) || this.drawOrder.get(b.id) - this.drawOrder.get(a.id)), edges = candidates.filter(c => c.kind === 'edge').reverse();
     for (const hit of nodes) {
       const n = this.page.graph.nodes[hit.id], g = this.page.view.nodes[hit.id];
       if (isContainer(this.doc, n)) continue;
-      if (pointInPolygon(point, shapeGeometry(getMaster(this.doc, n.master), g).points)) return hit;
+      const shape = shapeGeometry(getMaster(this.doc, n.master), g);
+      if (n.master === 'path' ? (g.closed && g.fill !== 'none' && g.fill !== 'transparent' && pointInPolygon(point, shape.points)) || polylineDistance(point, g.closed ? [...shape.points, shape.points[0]] : shape.points) < Math.max(8 / this.camera.zoom, (g.strokeWidth || 0) / 2 + 3 / this.camera.zoom) : pointInPolygon(point, shape.points)) return hit;
     }
     for (const hit of edges) if (polylineDistance(point, this.routing.routes.get(hit.id)?.points || []) < 7 / this.camera.zoom) return hit;
     for (const hit of nodes) {
@@ -139,7 +144,6 @@ export class DiagramApp {
   selectedHandle(point) {
     if (this.selection.size !== 1) return null; const id = [...this.selection][0]; if (isLocked(this.page, id)) return null;
     const g = this.page.view.nodes[id];
-    if (g) { for (const [name, x, y] of [['nw', g.x, g.y], ['ne', g.x + g.w, g.y], ['se', g.x + g.w, g.y + g.h], ['sw', g.x, g.y + g.h]]) if (distance(point, { x, y }) < 7 / this.camera.zoom) return { kind: 'resize', id, handle: name }; }
     const edge = this.page.graph.edges[id];
     if (edge) {
       const route = this.routing.routes.get(id)?.points || [];
@@ -173,10 +177,8 @@ export class DiagramApp {
     for (const id of this.selection) {
       const g = this.page.view.nodes[id], edge = this.page.graph.edges[id];
       if (g) {
-        rectangle(inflate(g, 3 / z), isLocked(this.page, id) ? '#a4aebd' : selectionColor);
-        if (this.selection.size === 1 && !isLocked(this.page, id)) {
-          for (const p of [{ x: g.x, y: g.y }, { x: g.x + g.w, y: g.y }, { x: g.x + g.w, y: g.y + g.h }, { x: g.x, y: g.y + g.h }]) { const s = screen(p); out.push(`<rect x="${s.x - 3.5}" y="${s.y - 3.5}" width="7" height="7" rx="1" fill="#ffffff" stroke="${selectionColor}" stroke-width="1.2"/>`); }
-        }
+        rectangle(inflate(geometryBounds(g), 3 / z), isLocked(this.page, id) ? '#a4aebd' : selectionColor);
+
       }
       if (edge) {
         const points = this.routing.routes.get(id)?.points || [];
@@ -185,7 +187,7 @@ export class DiagramApp {
       }
     }
     if (this.selection.size > 1) { const b = selectionBounds(this.page, [...this.selection]); if (b) rectangle(inflate(b, 6 / z), '#a890bf', true); }
-    const portIds = new Set([...this.selection, ...(this.hover?.kind === 'node' ? [this.hover.id] : [])]);
+    const portIds = this.tool === 'connect' ? new Set([...this.selection, ...(this.hover?.kind === 'node' ? [this.hover.id] : [])]) : new Set();
     for (const id of portIds) {
       const n = this.page.graph.nodes[id]; if (!n || isLocked(this.page, id)) continue;
       for (const p of getPorts(this.doc, n, this.page.view.nodes[id])) circle(p, this.tool === 'connect' ? 4.2 : 3.2, '#ffffff', '#a282c1');
@@ -203,25 +205,25 @@ export class DiagramApp {
       }
       const port = this.findPort(this.connectPoint, true); if (port) circle(port.point, 7, '#e8f6f0', '#76ad97');
     }
-    $('overlay').innerHTML = out.join('');
+    $('overlay').innerHTML = out.join('') + (this.editor?.overlay() || '');
   }
   drawRulers() {
-    const c = this.camera, dpr = c.dpr; let major = 100;
-    if (c.zoom < .35) major = 200; else if (c.zoom > 1.4) major = 50;
+    const c = this.camera, dpr = c.dpr; const desired = 100 / c.zoom; let major = 10 ** Math.floor(Math.log10(desired));
+    if (desired / major >= 5) major *= 5; else if (desired / major >= 2) major *= 2;
     for (const horizontal of [true, false]) {
       const canvas = $(horizontal ? 'ruler-top' : 'ruler-left'), length = horizontal ? c.width : c.height, w = horizontal ? length : 21, h = horizontal ? 21 : length;
       if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) { canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr); }
       const ctx = canvas.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.fillStyle = '#f7f8fb'; ctx.fillRect(0, 0, w, h); ctx.strokeStyle = '#d5dce6'; ctx.fillStyle = '#a0aabb'; ctx.font = '8px Arial'; ctx.lineWidth = 1;
       const pan = horizontal ? c.x : c.y, start = Math.floor(-pan / c.zoom / (major / 5)) * (major / 5), end = (length - pan) / c.zoom;
       for (let value = start; value <= end; value += major / 5) { const pos = Math.round(value * c.zoom + pan) + .5, full = Math.abs(value % major) < .01;
-        ctx.beginPath(); if (horizontal) { ctx.moveTo(pos, 21); ctx.lineTo(pos, full ? 12 : 17); if (full) ctx.fillText(String(value), pos + 3, 10); }
-        else { ctx.moveTo(21, pos); ctx.lineTo(full ? 12 : 17, pos); if (full) { ctx.save(); ctx.translate(9, pos + 3); ctx.rotate(-Math.PI / 2); ctx.fillText(String(value), 0, 0); ctx.restore(); } } ctx.stroke();
+        ctx.beginPath(); if (horizontal) { ctx.moveTo(pos, 21); ctx.lineTo(pos, full ? 12 : 17); if (full) ctx.fillText(String(+((value / (UNIT_SCALE[this.page.units || 'px'])) * (this.page.drawingScale || 1)).toFixed(2)), pos + 3, 10); }
+        else { ctx.moveTo(21, pos); ctx.lineTo(full ? 12 : 17, pos); if (full) { ctx.save(); ctx.translate(9, pos + 3); ctx.rotate(-Math.PI / 2); ctx.fillText(String(+((value / (UNIT_SCALE[this.page.units || 'px'])) * (this.page.drawingScale || 1)).toFixed(2)), 0, 0); ctx.restore(); } } ctx.stroke();
       }
     }
   }
   drawMinimap() {
-    const canvas = $('minimap'), ctx = canvas.getContext('2d'), p = this.page; const scale = Math.min(164 / p.width, 106 / p.height), ox = (180 - p.width * scale) / 2, oy = (122 - p.height * scale) / 2;
-    this.minimapTransform = { scale, ox, oy }; ctx.clearRect(0, 0, 180, 122); ctx.fillStyle = '#f4f6fa'; ctx.fillRect(0, 0, 180, 122); ctx.save(); ctx.translate(ox, oy); ctx.scale(scale, scale); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, p.width, p.height);
+    const canvas = $('minimap'), ctx = canvas.getContext('2d'), p = this.page; const ext = p.canvasMode === 'infinite' ? contentBounds(p, null, this.routing.routes) || pageBounds(p) : pageBounds(p); const scale = Math.min(164 / Math.max(1, ext.w), 106 / Math.max(1, ext.h)), ox = (180 - ext.w * scale) / 2 - ext.x * scale, oy = (122 - ext.h * scale) / 2 - ext.y * scale;
+    this.minimapTransform = { scale, ox, oy }; ctx.clearRect(0, 0, 180, 122); ctx.fillStyle = '#f4f6fa'; ctx.fillRect(0, 0, 180, 122); ctx.save(); ctx.translate(ox, oy); ctx.scale(scale, scale); ctx.fillStyle = '#fff'; ctx.fillRect(ext.x, ext.y, ext.w, ext.h);
     for (const n of Object.values(p.graph.nodes)) if (isVisible(p, n.id)) { const g = p.view.nodes[n.id]; ctx.fillStyle = g.fill === 'transparent' ? '#c9c1d4' : g.fill; ctx.strokeStyle = g.stroke === 'transparent' ? '#c9c1d4' : g.stroke; ctx.lineWidth = 1 / scale; ctx.fillRect(g.x, g.y, g.w, g.h); ctx.strokeRect(g.x, g.y, g.w, g.h); }
     ctx.strokeStyle = '#acbbc9'; ctx.lineWidth = 1 / scale;
     for (const [id, r] of this.routing.routes) if (isVisible(p, id)) { ctx.beginPath(); r.points.forEach((q, i) => i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)); ctx.stroke(); }

@@ -1,3 +1,4 @@
+import { geometryBounds } from './drawing.js';
 import { getPort, isContainer, getMaster } from './stencils.js';
 import { isVisible } from './model.js';
 import { bounds, inflate, intersects, union } from './geometry.js';
@@ -38,12 +39,12 @@ export class RoutingService extends EventTarget {
     const changedAreas = [], changedIds = new Set(), newNodes = new Map(), obstacles = [];
     for (const n of Object.values(page.graph.nodes)) {
       const g = page.view.nodes[n.id]; const visible = isVisible(page, n.id), obstacle = visible && !isContainer(doc, n) && !getMaster(doc, n.master).annotation;
-      const record = { x: g.x, y: g.y, w: g.w, h: g.h, visible, obstacle, master: n.master, ports: n.ports };
+      const record = { x: g.x, y: g.y, w: g.w, h: g.h, visible, obstacle, master: n.master, ports: n.ports, rotation: g.rotation, flipX: g.flipX, flipY: g.flipY };
       const old = this.nodes.get(n.id);
-      if (signature(old) !== signature(record)) { changedIds.add(n.id); if (old) changedAreas.push(inflate(old, 24)); changedAreas.push(inflate(g, 24)); }
-      newNodes.set(n.id, record); if (obstacle) obstacles.push({ ...inflate(g, 12), id: n.id });
+      if (signature(old) !== signature(record)) { changedIds.add(n.id); if (old) changedAreas.push(inflate(geometryBounds(old), 24)); changedAreas.push(inflate(geometryBounds(g), 24)); }
+      newNodes.set(n.id, record); if (obstacle) obstacles.push({ ...inflate(geometryBounds(g), 12), id: n.id });
     }
-    for (const [id, old] of this.nodes) if (!newNodes.has(id)) { changedIds.add(id); changedAreas.push(inflate(old, 24)); }
+    for (const [id, old] of this.nodes) if (!newNodes.has(id)) { changedIds.add(id); changedAreas.push(inflate(geometryBounds(old), 24)); }
     this.nodes = newNodes;
     let anyChanged = switched || changedIds.size > 0;
     for (const [id, edge] of Object.entries(page.graph.edges)) {
@@ -59,7 +60,7 @@ export class RoutingService extends EventTarget {
       const e = page.graph.edges[id]; if (!e) continue;
       const fg = page.view.nodes[e.from.nodeId], tg = page.view.nodes[e.to.nodeId];
       const start = getPort(doc, page, e.from, center(tg)), end = getPort(doc, page, e.to, center(fg)); if (!start || !end) continue;
-      const request = { id, fromId: e.from.nodeId, toId: e.to.nodeId, start, end, startStub: escapePort(start, fg, 22), endStub: escapePort(end, tg, 22), waypoints: page.view.edges[id].waypoints || [] };
+      const request = { id, fromId: e.from.nodeId, toId: e.to.nodeId, start, end, startStub: escapePort(start, geometryBounds(fg), 22), endStub: escapePort(end, geometryBounds(tg), 22), waypoints: page.view.edges[id].waypoints || [] };
       requests.push(request);
       // Endpoint-correct preview avoids detached connectors while a worker route is pending.
       const old = this.routes.get(id);

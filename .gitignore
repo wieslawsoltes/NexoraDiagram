@@ -5,3 +5,4 @@ __pycache__/
 _site/
 dist/
 docs/*-preview.png
+test-results/

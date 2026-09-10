@@ -1,6 +1,6 @@
 # Nexora Diagram
 
-An original, dependency-free structured-diagram editor with a Visio-inspired ribbon workspace, a semantic diagram model, real editing tools, obstacle-aware orthogonal routing, and a retained WebGPU rendering backend.
+An original, dependency-free structured-diagram editor with a professional ribbon workspace, a semantic diagram model, real editing tools, obstacle-aware orthogonal routing, and a retained WebGPU rendering backend.
 
 **The diagram is not an SVG mockup or screenshot.** Shapes, ports, connectors, labels, layers, containers, page graphs, and property panels are editable document objects. The startup purchase-approval example is built through the same model API used by the editor.
 
@@ -9,6 +9,20 @@ An original, dependency-free structured-diagram editor with a Visio-inspired rib
 [Open Nexora Diagram](https://wieslawsoltes.github.io/NexoraDiagram/) · [Standalone HTML](https://wieslawsoltes.github.io/NexoraDiagram/Nexora-Diagram.html) · [WebGPU smoke test](https://wieslawsoltes.github.io/NexoraDiagram/tests/webgpu-smoke.html)
 
 The `main` branch contains the source. GitHub Actions runs the automated tests, creates a static site with `npm run build:pages`, and publishes the tested artifact directly to GitHub Pages. Pull requests run the same tests and build without publishing. No runtime dependencies, tokens, or third-party services are needed by the application.
+
+## Drawing and canvas editing
+
+The **Draw** tab includes straight lines, arrows, rectangles, ellipses, polylines, filled polygons, freehand strokes, quadratic arcs, and cubic curves. These are editable document objects with persistent control points, not raster overlays. The Properties panel provides fill/no-fill, stroke/no-stroke, line weight, solid/dash/dot/dash-dot patterns, cap/join styles, endpoint markers, opacity, rotation, and format copy/paste.
+
+Select a shape to see **eight resize grips** and a rotation grip. Side grips affect one axis. Hold **Shift** to preserve proportions; hold **Alt** to resize around the center. Paths expose endpoints; **Edit points** exposes curve controls and all polyline vertices. Double-click a linear segment to add a vertex. Click to build a polyline/polygon, then press **Enter** to finish or **Backspace** to remove the last draft vertex. **Escape** cancels an unfinished gesture.
+
+**Home → Select all**, or **Ctrl/Cmd+A**, selects editable visible objects. Drag any selected member or empty space inside a multi-selection box to move the selection. Manual internal connector waypoints move exactly once with their shapes. The Connector tool is explicit: pointer dragging near a port no longer starts a connection. Drag rightward for a containment marquee, leftward for a crossing marquee, or use the lasso. Groups, ungrouping, rotation/flipping, object locks, keyboard nudging, and edge auto-pan share the history engine.
+
+**Page setup** is available from Home, Draw, View, and the document inspector. Choose **fixed**, **auto-size**, or **infinite** canvas mode; a paper preset or custom dimensions; units, orientation, grid spacing, and drawing scale. Auto-size grows left/up as well as right/down. Infinite mode removes the paper boundary without allocating an enormous canvas bitmap. **Fit page to drawing** includes negative coordinates. Exported infinite diagrams use finite content bounds.
+
+File offers SVG, selection SVG, PNG, and Print. PNG is bounded to 8,192 pixels per side and approximately 32 megapixels; large drawings are scaled down explicitly rather than allocating an unbounded raster. Print fits the current page to a browser print sheet. The native JSON project retains all drawing geometry, groups, styles, locks, and page settings.
+
+Read [editing workflows](docs/EDITING.md) for keyboard shortcuts and exact semantics, and [capabilities](docs/CAPABILITIES.md) for the verified scope.
 
 ## Run
 
@@ -174,11 +188,11 @@ npm run build
 NEXORA_FIXTURE=1 CHROMIUM_PATH=/usr/bin/chromium python3 tests/browser_test.py
 ```
 
-It exercises the self-contained build with `page.set_content`, a real Blob Worker, actual pointer/keyboard operations, actual file downloads/uploads, and **injected in-memory persistence**. It does not modify browser navigation policy. The report contains 36 passing checks, no uncaught errors, and no browser console errors. See `docs/browser-test-results.json` and `docs/core-test-results.tap` for the historical delivery reports. The browser harness generates desktop/mobile screenshots locally; generated screenshots and bundles are not checked into source.
+It exercises the self-contained build with `page.set_content`, a real Blob Worker, actual pointer/keyboard operations, actual file downloads/uploads, and **injected in-memory persistence**. It does not modify browser navigation policy. The historical report contains 36 passing checks, no uncaught errors, and no browser console errors. See `docs/browser-test-results.json` and `docs/core-test-results.tap` for the historical delivery reports. Current browser runs write reports and desktop/mobile screenshots to `test-results/`, which CI retains as artifacts. Generated screenshots and bundles are not checked into source. Run the new drawing regressions with `python3 tests/editor_browser.py`; `NEXORA_FIXTURE=1` selects the same restricted-runner fixture mode. `NEXORA_GPU=1` requires a real WebGPU backend in HTTP mode and fails rather than silently accepting fallback.
 
 ## Explicit scope
 
-This is a working original diagram editor and extensible core, not Microsoft's software or a promise of complete Visio compatibility. There is no VSD/VSDX/VDX import, VBA, full ShapeSheet, BPMN execution, arbitrary Bezier path editing, rotation, rich-text editor, embedded image shape, cross-page connector, multi-user collaboration, or server-side document service. SVG and Nexora JSON are the provided export formats.
+Nexora is an independent diagram editor. Implemented behavior and remaining boundaries are recorded in [the capability matrix](docs/CAPABILITIES.md). This release does not claim universal feature or file-format compatibility with another application. Proprietary native diagram formats and macro runtimes, a rich-text document editor, embedded image objects, cross-page connector identities, multi-user collaboration, and a server document service are not implemented. Supported delivery formats are Nexora JSON, SVG, PNG, and browser print (including a browser-provided PDF destination).
 
 Routing is clearance-aware against axis-aligned shape bounds, not exact curved silhouettes. It does not globally optimize connector crossings, bundle edges, or add line jumps. A bounded search can return a visibly flagged blocked route; user waypoints guide routing, not guaranteed feasibility. Containers are not obstacles. The layout solver is a bounded projection solver for alignment and distribution, not a general symbolic equation solver or mixed-integer optimizer. Heavy graph edits still require CPU work, a transaction snapshot, validation, and scene reconstruction for visible content.
 
@@ -193,4 +207,4 @@ The implementation targets the WebGPU and WGSL specifications and uses native br
 - GPU API and secure-context availability: https://developer.mozilla.org/en-US/docs/Web/API/GPU
 - Secure contexts: https://developer.mozilla.org/en-US/docs/Web/Security/Defenses/Secure_Contexts
 
-Original source is provided under the MIT license. Nexora Diagram is not affiliated with or endorsed by Microsoft.
+Original source is provided under the MIT license. Nexora Diagram is an independent project.

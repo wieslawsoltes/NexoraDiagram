@@ -15,6 +15,8 @@ import asyncio, json, os
 from pathlib import Path
 from playwright.async_api import async_playwright
 ROOT = Path(__file__).resolve().parents[1]
+OUT = ROOT / 'test-results'
+OUT.mkdir(exist_ok=True)
 FIXTURE = os.getenv('NEXORA_FIXTURE') == '1'
 REPORT = {'mode': 'in-memory Canvas fixture' if FIXTURE else 'HTTP application', 'checks': [], 'errors': [], 'consoleErrors': []}
 
@@ -46,7 +48,7 @@ async def main():
         check('router runs in a real Web Worker', await page.evaluate('!!nexora.routing.worker'))
         check('canvas display list contains editable scene content', await page.evaluate('nexora.renderer.scene.primitives.length') > 40)
         check('ribbon, stencils and inspector exist', await page.locator('[data-master="process"]').count() == 1 and await page.locator('[data-prop="w"]').count() == 1)
-        await page.screenshot(path=str(ROOT / 'docs' / 'desktop-preview.png'), full_page=True)
+        await page.screenshot(path=str(OUT / 'desktop-preview.png'), full_page=True)
 
         async def world_point(x, y):
             return await page.evaluate('''([x,y]) => {const p=nexora.worldToScreen({x,y});const r=document.getElementById('stage').getBoundingClientRect();return {x:p.x+r.left,y:p.y+r.top};}''',[x,y])
@@ -111,11 +113,11 @@ async def main():
         # Export operations return nonempty vector and semantic files.
         async with page.expect_download() as pending:
             await page.locator('#export-button').click()
-        download=await pending.value;dest=ROOT/'docs'/'test-export.svg';await download.save_as(str(dest));svg=dest.read_text()
+        download=await pending.value;dest=OUT/'test-export.svg';await download.save_as(str(dest));svg=dest.read_text()
         check('SVG export contains vector paths and text', '<path' in svg and '<text' in svg and 'data-nexora-id' in svg)
         async with page.expect_download() as pending:
             await page.locator('#quick-actions [data-action="save-project"]').click()
-        download=await pending.value;dest=ROOT/'docs'/'test-project.json';await download.save_as(str(dest));saved=json.loads(dest.read_text())
+        download=await pending.value;dest=OUT/'test-project.json';await download.save_as(str(dest));saved=json.loads(dest.read_text())
         check('project export contains semantic and visual models',saved['format']=='nexora.diagram' and all('graph' in p and 'view' in p for p in saved['pages'].values()))
 
         # Create a blank second page and connect two new editable shapes with the pointer.
@@ -145,7 +147,7 @@ async def main():
         # Validate and test multi-page persistence restoration through import.
         await page.evaluate('nexora.runValidation()');await page.wait_for_timeout(100)
         check('validation panel displays computed diagnostics',await page.locator('#validation-panel').is_visible())
-        await page.locator('#project-file').set_input_files(ROOT/'docs'/'test-project.json');await page.wait_for_timeout(150)
+        await page.locator('#project-file').set_input_files(OUT/'test-project.json');await page.wait_for_timeout(150)
         check('project import restores saved page graph',await page.evaluate('nexora.doc.pageOrder.length')==1)
         await page.evaluate('nexora.autosave()');await page.wait_for_timeout(100)
         if FIXTURE:
@@ -158,7 +160,7 @@ async def main():
         await page.evaluate('nexora.fitPage()');await page.wait_for_timeout(100)
         check('mobile canvas retains positive drawable dimensions',await page.evaluate('nexora.camera.width>180 && nexora.camera.height>300'))
         await page.evaluate("document.getElementById('toast').hidden=true;document.getElementById('validation-panel').hidden=true")
-        await page.screenshot(path=str(ROOT/'docs'/'mobile-preview.png'),full_page=True)
+        await page.screenshot(path=str(OUT/'mobile-preview.png'),full_page=True)
         REPORT['backend']=await page.evaluate('nexora.renderer.mode');REPORT['webgpuBrowserTested']=REPORT['backend']=='WebGPU'
         check('no uncaught application errors',not REPORT['errors'],REPORT['errors'])
         check('no browser console errors',not REPORT['consoleErrors'],REPORT['consoleErrors'])
@@ -168,5 +170,5 @@ if __name__=='__main__':
     try:
         asyncio.run(main())
     finally:
-        (ROOT/'docs'/'browser-test-results.json').write_text(json.dumps(REPORT,indent=2))
+        (OUT/'browser-test-results.json').write_text(json.dumps(REPORT,indent=2))
         print(json.dumps(REPORT,indent=2))

@@ -1,3 +1,4 @@
+import { geometryBounds } from './drawing.js';
 import { uid, descendants, isLocked, ancestors, movementLockedIds } from './model.js';
 import { isContainer, getMaster } from './stencils.js';
 import { round, union, intersects, inflate } from './geometry.js';
@@ -53,7 +54,8 @@ export function fitContainers(doc, page) {
   for (const c of containers) {
     if (isLocked(page, c.id)) continue;
     const children = Object.values(page.graph.nodes).filter(n => n.parentId === c.id); if (!children.length) continue;
-    let box; for (const n of children) box = union(box, page.view.nodes[n.id]); const g = page.view.nodes[c.id];
+    let box; for (const n of children) box = union(box, geometryBounds(page.view.nodes[n.id])); const g = page.view.nodes[c.id];
+    if (c.master === 'group') { Object.assign(g, box, { rotation: 0, flipX: false, flipY: false }); continue; }
     const left = Math.min(g.x, box.x - 20), top = Math.min(g.y, box.y - 52);
     g.w = round(Math.max(g.x + g.w, box.x + box.w + 20) - left); g.h = round(Math.max(g.y + g.h, box.y + box.h + 20) - top); g.x = round(left); g.y = round(top);
   }

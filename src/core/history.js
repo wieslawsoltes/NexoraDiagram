@@ -1,3 +1,4 @@
+import { autoSizePage } from './page.js';
 import { assertDocument } from './model.js';
 const clone = value => value === undefined ? undefined : structuredClone(value);
 function equal(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
@@ -25,7 +26,7 @@ export class DocumentStore extends EventTarget {
   preview() { this.notify('preview', this.pending?.label); }
   commit() {
     if (!this.pending) return false; const transaction = this.pending;
-    try { assertDocument(this.doc); } catch (error) { this.doc = transaction.before; this.pending = null; this.notify('rollback'); throw error; }
+    try { for (const p of Object.values(this.doc.pages)) autoSizePage(p); assertDocument(this.doc); } catch (error) { this.doc = transaction.before; this.pending = null; this.notify('rollback'); throw error; }
     this.pending = null; const patches = diff(transaction.before, this.doc);
     if (!patches.length) return false;
     const command = { label: transaction.label, patches, bytes: JSON.stringify(patches).length * 2 };
