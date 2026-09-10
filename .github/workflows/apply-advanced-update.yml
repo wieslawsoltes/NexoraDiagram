@@ -19,7 +19,7 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
-      - name: Reconstruct and verify exact tested patch
+      - name: Reconstruct and verify recovered source
         run: |
           node --input-type=module <<'JS'
           import { readFileSync, writeFileSync } from 'node:fs';
@@ -31,20 +31,22 @@ jobs:
           writeFileSync('/tmp/nexora-advanced.patch', data);
           console.log('Verified complete patch bytes and SHA-256');
           JS
-          git apply --check /tmp/nexora-advanced.patch
-          git apply --index /tmp/nexora-advanced.patch
+          # Workflow edits are committed separately by the authorized GitHub connection.
+          # The Actions token is used only for ordinary source files.
+          git apply --exclude='.github/workflows/*' --check /tmp/nexora-advanced.patch
+          git apply --exclude='.github/workflows/*' --index /tmp/nexora-advanced.patch
       - name: Reproduce syntax, model, build, and deployment regressions
         run: |
           find src -name '*.js' -print0 | xargs -0 -n1 node --check
           npm run build
           npm test
           npm run build:pages
-      - name: Commit verified changes on the requested feature branch
+      - name: Commit recovered changes on the requested feature branch
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           test "$GITHUB_REF" = 'refs/heads/feat/advanced-authoring-collaboration'
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'feat: native interchange, peer collaboration and advanced vector authoring'
+          git commit -m 'feat: recover native interchange, peer collaboration and advanced vector authoring'
           git -c credential.helper='!f() { printf "%s\n" "username=x-access-token" "password=$GH_TOKEN"; }; f' push origin HEAD:refs/heads/feat/advanced-authoring-collaboration
