@@ -9,6 +9,20 @@ FIXTURE=os.getenv('NEXORA_FIXTURE')=='1';GPU=os.getenv('NEXORA_GPU')=='1'
 REPORT={'mode':'standalone fixture' if FIXTURE else 'HTTP modular app','gpuRequired':GPU,'checks':[],'errors':[],'consoleErrors':[]}
 def check(name,value,details=None):
     print(f'{name}: {bool(value)}',flush=True);REPORT['checks'].append({'name':name,'passed':bool(value),'details':details});assert value,f'{name}: {details}'
+async def wait_for(page, expression, *, arg=None, timeout=30000):
+    """Poll through the automation protocol; never inject page-context eval.
+
+    String predicates inside Playwright's polling utility can fail under the
+    application's strict CSP after DOM changes. Each evaluate call uses the
+    automation protocol without changing CSP or granting unsafe-eval to the app.
+    """
+    deadline=asyncio.get_running_loop().time()+timeout/1000
+    while True:
+        if await page.evaluate(expression,arg):return
+        if asyncio.get_running_loop().time()>=deadline:
+            raise AssertionError(f'Timed out after {timeout} ms waiting for {expression}')
+        await asyncio.sleep(.05)
+
 async def run():
  async with async_playwright() as pw:
   args=['--no-sandbox']
@@ -19,9 +33,9 @@ async def run():
    p=await ctx.new_page();p.on('pageerror',lambda e:REPORT['errors'].append(str(e)));p.on('console',lambda m:REPORT['consoleErrors'].append(m.text) if m.type=='error' else None)
    if FIXTURE:await p.set_content((ROOT/'dist/Nexora-Diagram.html').read_text(),wait_until='load')
    else:await p.goto(os.getenv('NEXORA_URL','http://127.0.0.1:8080')+('' if GPU else '?renderer=canvas'),wait_until='networkidle')
-   await p.wait_for_function('window.nexora && nexora.editor && !!nexora.extraActions?.collaborate')
+   await wait_for(p,'window.nexora && nexora.editor && !!nexora.extraActions?.collaborate')
    if FIXTURE:await p.evaluate('nexora.persistence={save:async doc=>window.__saved=structuredClone(doc)}')
-   if GPU:await p.wait_for_function("nexora.renderer.mode==='WebGPU'",timeout=20000)
+   if GPU:await wait_for(p,"nexora.renderer.mode==='WebGPU'",timeout=20000)
    return p
   page=await opened(context)
   async def ev(s,arg=None):return await page.evaluate(s,arg)
@@ -73,7 +87,7 @@ async def run():
   payload={'name':'two-color.png','mimeType':'image/png','buffer':base64.b64decode(data.split(',')[1])}
   async with page.expect_file_chooser() as fc:await action('embed-image')
   await (await fc.value).set_files(payload)
-  await page.wait_for_function('Object.values(nexora.page.graph.nodes).some(n=>n.image)');im=await ev('Object.values(nexora.page.graph.nodes).find(n=>n.image).id')
+  await wait_for(page,'Object.values(nexora.page.graph.nodes).some(n=>n.image)');im=await ev('Object.values(nexora.page.graph.nodes).find(n=>n.image).id')
   await ev('(id)=>nexora.store.transact("Place image",()=>Object.assign(nexora.page.view.nodes[id],{x:790,y:90,w:160,h:100}))',im)
   await select([im]);await action('image-properties');await page.locator('#image-x').fill('50');await page.locator('#image-w').fill('50');await page.locator('#image-fit').select_option('stretch');await submit()
   check('image cropping preserves original embedded pixels',await ev('(id)=>{const n=nexora.page.graph.nodes[id];return n.image.crop.x===.5&&n.image.crop.w===.5&&n.image.width===160}',im))
@@ -88,9 +102,9 @@ async def run():
   async with page.expect_download() as dl:await action('export-png')
   png=Path(await (await dl.value).path()).read_bytes();check('PNG exports embedded image content as a real raster',png[:8]==b'\x89PNG\r\n\x1a\n')
   # Multi-sheet HTML preview and one-sheet fit.
-  await action('print-page');await page.locator('#print-preview-button').click();await page.wait_for_function('Number(document.getElementById("print-preview").dataset.sheetCount)>1')
+  await action('print-page');await page.locator('#print-preview-button').click();await wait_for(page,'Number(document.getElementById("print-preview").dataset.sheetCount)>1')
   frame=page.frame_locator('#print-preview');check('print preview creates multiple physical sheets',await frame.locator('.sheet').count()>1)
-  await page.locator('#print-fit').select_option('fit');await page.locator('#print-preview-button').click();await page.wait_for_function('document.getElementById("print-preview").dataset.sheetCount==="1"')
+  await page.locator('#print-fit').select_option('fit');await page.locator('#print-preview-button').click();await wait_for(page,'document.getElementById("print-preview").dataset.sheetCount==="1"')
   check('fit printing uses one physical sheet per diagram page',await frame.locator('.sheet').count()==1)
   async with page.expect_download() as dl:await page.locator('#print-html-button').click()
   printed=Path(await (await dl.value).path()).read_text();check('printable HTML retains images, vectors and physical paper CSS','@page{size:210mm 297mm' in printed and 'data:image/png;base64' in printed);await close()
@@ -103,7 +117,7 @@ async def run():
   await expect(page.locator('#dialog-title')).to_have_text('Import drawing — review conversion');check('native import provides a conversion report before replacing the workspace','LOSSLESS_EXTENSION' in await page.locator('#dialog-body').inner_text());await submit()
   check('native package roundtrip preserves all native authoring records',await ev('(s)=>JSON.stringify(nexora.doc)===s',snapshot))
   if not FIXTURE:
-   await ev('nexora.autosave()');await page.reload(wait_until='networkidle');await page.wait_for_function('!!window.nexora?.extraActions?.collaborate');check('rich text, pressure and embedded images survive real browser reload',await ev('(id)=>!!nexora.page.graph.nodes[id]?.image',im))
+   await ev('nexora.autosave()');await page.reload(wait_until='networkidle');await wait_for(page,'!!window.nexora?.extraActions?.collaborate');check('rich text, pressure and embedded images survive real browser reload',await ev('(id)=>!!nexora.page.graph.nodes[id]?.image',im))
   await ev('nexora.ui.tab="Advanced";nexora.ui.renderRibbon();nexora.fitPage();nexora.select([])');await page.wait_for_timeout(180)
   await page.screenshot(path=str(OUT/f'advanced-{"gpu" if GPU else "canvas"}-desktop.png'))
   await page.set_viewport_size({'width':430,'height':850});await page.wait_for_timeout(150);await page.screenshot(path=str(OUT/f'advanced-{"gpu" if GPU else "canvas"}-mobile.png'))
@@ -112,35 +126,35 @@ async def run():
   if not FIXTURE and not GPU:
    async def start(p,room,join=False):
     await p.evaluate("nexora.action('collaborate')");await p.locator('#session-room').fill(room);await p.locator('#session-join' if join else '#session-host').click();await p.locator('#dialog-footer [data-action=close-dialog]').click()
-   p2=await opened(context);await start(page,'nexora_ci_local_2026');await start(p2,'nexora_ci_local_2026',True);await p2.wait_for_function('nexora.collaboration?.ready')
+   p2=await opened(context);await start(page,'nexora_ci_local_2026');await start(p2,'nexora_ci_local_2026',True);await wait_for(p2,'nexora.collaboration?.ready')
    check('BroadcastChannel joins a real shared document',await p2.evaluate('nexora.doc.id')==await ev('nexora.doc.id'))
    await ev('(id)=>nexora.store.transact("Shared move",()=>nexora.page.view.nodes[id].x=450)',text)
-   await p2.wait_for_function('(id)=>nexora.page.view.nodes[id].x===450',arg=text)
+   await wait_for(p2,'(id)=>nexora.page.view.nodes[id].x===450',arg=text)
    await p2.evaluate('(id)=>nexora.store.transact("Peer color",()=>nexora.page.view.nodes[id].fill="#00dd99")',text)
-   await page.wait_for_function('(id)=>nexora.page.view.nodes[id].fill==="#00dd99"',arg=text)
-   await action('undo');await p2.wait_for_function('(id)=>nexora.page.view.nodes[id].x===440',arg=text)
+   await wait_for(page,'(id)=>nexora.page.view.nodes[id].fill==="#00dd99"',arg=text)
+   await action('undo');await wait_for(p2,'(id)=>nexora.page.view.nodes[id].x===440',arg=text)
    check('collaborative undo preserves independent peer changes',await ev('(id)=>nexora.page.view.nodes[id].fill==="#00dd99"',text))
-   await ev('(id)=>nexora.store.transact("Another move",()=>nexora.page.view.nodes[id].x=460)',text);await p2.wait_for_function('(id)=>nexora.page.view.nodes[id].x===460',arg=text)
-   await p2.evaluate('(id)=>nexora.store.transact("Peer replaces position",()=>nexora.page.view.nodes[id].x=470)',text);await page.wait_for_function('(id)=>nexora.page.view.nodes[id].x===470',arg=text);await action('undo')
+   await ev('(id)=>nexora.store.transact("Another move",()=>nexora.page.view.nodes[id].x=460)',text);await wait_for(p2,'(id)=>nexora.page.view.nodes[id].x===460',arg=text)
+   await p2.evaluate('(id)=>nexora.store.transact("Peer replaces position",()=>nexora.page.view.nodes[id].x=470)',text);await wait_for(page,'(id)=>nexora.page.view.nodes[id].x===470',arg=text);await action('undo')
    check('undo never overwrites a later peer geometry edit',await ev('(id)=>nexora.page.view.nodes[id].x===470',text))
    await ev('nexora.collaboration.close()');await p2.evaluate('nexora.collaboration.close()');await p2.close()
    remote=await browser.new_context(viewport={'width':1600,'height':1000});p3=await opened(remote)
    await start(page,'nexora_ci_remote_2026');await start(p3,'nexora_ci_remote_2026',True)
    async def connect():
     offer=await ev('nexora.collaboration.createOffer()');answer=await p3.evaluate('(offer)=>nexora.collaboration.answerOffer(offer)',offer);await ev('(answer)=>nexora.collaboration.acceptAnswer(answer)',answer)
-    await page.wait_for_function('[...nexora.collaboration.channels].some(c=>c.readyState==="open")',timeout=30000);await p3.wait_for_function('nexora.collaboration.ready',timeout=30000)
+    await wait_for(page,'[...nexora.collaboration.channels].some(c=>c.readyState==="open")',timeout=30000);await wait_for(p3,'nexora.collaboration.ready',timeout=30000)
    await connect();check('separate browser contexts synchronize via a real WebRTC data channel',await p3.evaluate('nexora.doc.id')==await ev('nexora.doc.id'))
    await ev('(id)=>nexora.store.transact("Remote label",()=>{nexora.page.graph.nodes[id].label="Remote peer edit";delete nexora.page.graph.nodes[id].richText})',text)
-   await p3.wait_for_function('(id)=>nexora.page.graph.nodes[id].label==="Remote peer edit"',arg=text);check('WebRTC carries real document operations',True)
+   await wait_for(p3,'(id)=>nexora.page.graph.nodes[id].label==="Remote peer edit"',arg=text);check('WebRTC carries real document operations',True)
    await ev('for(const pc of nexora.collaboration.connections)pc.close()');await p3.evaluate('for(const pc of nexora.collaboration.connections)pc.close()')
    await ev('(id)=>nexora.store.transact("Offline color",()=>nexora.page.view.nodes[id].fill="#9988cc")',text)
    await p3.evaluate('(id)=>nexora.store.transact("Offline text",()=>nexora.page.graph.nodes[id].label="Reconnected")',text)
-   await connect();await page.wait_for_function('(id)=>nexora.page.graph.nodes[id].label==="Reconnected"',arg=text);await p3.wait_for_function('(id)=>nexora.page.view.nodes[id].fill==="#9988cc"',arg=text)
+   await connect();await wait_for(page,'(id)=>nexora.page.graph.nodes[id].label==="Reconnected"',arg=text);await wait_for(p3,'(id)=>nexora.page.view.nodes[id].fill==="#9988cc"',arg=text)
    check('offline peer edits merge after a new WebRTC handshake',True)
    check('collaboration reports no transport or validation failures',await ev('!nexora.collaboration.lastError') and await p3.evaluate('!nexora.collaboration.lastError'))
    await ev('nexora.collaboration.close()');await p3.evaluate('nexora.collaboration.close()');await remote.close()
   if GPU:
-   await page.wait_for_function('nexora.renderer.mode==="WebGPU"');await ev('nexora.renderer.backend.device.queue.onSubmittedWorkDone()');check('WebGPU pipelines submit and complete rich content and image commands',True)
+   await wait_for(page,'nexora.renderer.mode==="WebGPU"');await ev('nexora.renderer.backend.device.queue.onSubmittedWorkDone()');check('WebGPU pipelines submit and complete rich content and image commands',True)
   REPORT['backend']=await ev('nexora.renderer.mode');check('no uncaught advanced application errors',not REPORT['errors'],REPORT['errors'])
   # Fixture about:blank intentionally cannot access persistence; console errors from that path are not GPU/storage evidence.
   if not FIXTURE:check('HTTP advanced workflows produce no console errors',not REPORT['consoleErrors'],REPORT['consoleErrors'])
