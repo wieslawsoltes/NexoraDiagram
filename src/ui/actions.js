@@ -1,3 +1,4 @@
+import { editableSelection, selectionBox } from '../core/editing.js';
 import { createDocument, createPage, parseDocument, addNode, uid, removeItems, duplicateItems, isLocked, movementLockedIds, isVisible, descendants, selectionBounds, ancestors } from '../core/model.js';
 import { createDemo } from '../core/template.js';
 import { getMaster, allMasters, isContainer, validateMaster, SAMPLE_MASTER } from '../core/stencils.js';
@@ -58,7 +59,7 @@ export function installActions(a) {
     'add-page': () => { let id; a.transact('Add page', () => { const p = createPage(`Page ${a.doc.pageOrder.length + 1}`); id = p.id; a.doc.pages[id] = p; a.doc.pageOrder.push(id); }); if (id) a.switchPage(id); },
     'duplicate-page': () => {
       let id; a.transact('Duplicate page', () => {
-        const source = a.page, page = createPage(`${source.name} copy`); page.width = source.width; page.height = source.height; page.layers = structuredClone(source.layers); page.view = { nodes: {}, edges: {} };
+        const source = a.page, page = createPage(`${source.name} copy`); page.width = source.width; page.height = source.height; for (const key of ['canvasMode', 'originX', 'originY', 'units', 'gridSize', 'drawingScale']) if (source[key] !== undefined) page[key] = source[key]; page.layers = structuredClone(source.layers); page.view = { nodes: {}, edges: {} };
         duplicateItems(page, Object.keys(source.graph.nodes), { x: 0, y: 0 }, source);
         // Recreate active constraints using identity mapping inferred from matching insertion order.
         const originalIds = Object.keys(source.graph.nodes), copiedIds = Object.keys(page.graph.nodes), map = new Map(originalIds.map((key, i) => [key, copiedIds[i]]));
@@ -69,7 +70,7 @@ export function installActions(a) {
     'delete-page': () => { if (a.doc.pageOrder.length === 1) throw new Error('A document must contain at least one page.'); a.ui.dialog('Delete this page?', `<p>Delete “${esc(a.page.name)}” and its contents? This operation can be undone.</p>`, () => a.store.transact('Delete page', () => { const id = a.pageId; delete a.doc.pages[id]; a.doc.pageOrder = a.doc.pageOrder.filter(p => p !== id); }), 'Delete page'); },
     'previous-page': () => { const i = a.doc.pageOrder.indexOf(a.pageId); if (i > 0) a.switchPage(a.doc.pageOrder[i - 1]); },
     'next-page': () => { const i = a.doc.pageOrder.indexOf(a.pageId); if (i < a.doc.pageOrder.length - 1) a.switchPage(a.doc.pageOrder[i + 1]); },
-    'select-all': () => a.select([...Object.keys(a.page.graph.nodes), ...Object.keys(a.page.graph.edges)].filter(id => isVisible(a.page, id))),
+    'select-all': () => a.select(editableSelection(a.page, [...Object.keys(a.page.graph.nodes), ...Object.keys(a.page.graph.edges)])),
     copy: () => { if (!selectedNodes().length) { a.ui.showToast('Select shapes to copy; their internal connectors are included.'); return false; } a.clipboard = { page: structuredClone(a.page), ids: [...a.selection] }; a.pasteCount = 0; a.ui.showToast('Selection copied inside Nexora.'); },
     cut: () => { if (actions.copy() !== false) actions.delete(); },
     paste: () => { if (!a.clipboard) return a.ui.showToast('Copy a selection in Nexora first.'); const p = a.clipboard; let ids = []; a.pasteCount = (a.pasteCount || 0) + 1; a.transact('Paste shapes', () => ids = duplicateItems(a.page, p.ids, { x: a.pasteCount * 28, y: a.pasteCount * 28 }, p.page)); a.select(ids); },
@@ -79,7 +80,7 @@ export function installActions(a) {
       a.transact('Delete selection', () => removeItems(a.page, ids)); a.select([]);
     },
     'zoom-in': () => a.setZoom(a.camera.zoom * 1.2), 'zoom-out': () => a.setZoom(a.camera.zoom / 1.2), 'zoom-100': () => a.setZoom(1), fit: () => a.fitPage(),
-    'zoom-selection': () => a.fitBounds(selectionBounds(a.page, [...a.selection]), 100),
+    'zoom-selection': () => a.fitBounds(selectionBox(a.page, [...a.selection], a.routing.routes), 100),
     'auto-layout': () => { a.transact('Automatic layout', () => autoLayout(a.doc, a.page)); a.fitPage(); },
     'fit-containers': () => a.transact('Fit containers to members', () => fitContainers(a.doc, a.page)),
     'make-container': () => {
@@ -124,10 +125,11 @@ export function installActions(a) {
     },
     'save-as-stencil': () => {
       const n = single(); if (!n.master) throw new Error('Choose a shape, not a connector.'); const m = getMaster(a.doc, n.master), g = a.page.view.nodes[n.id];
+      if (n.master === 'group' || n.master === 'path' && !g.closed) throw new Error('Reusable polygon stencils require a closed shape. Copy/paste retains open drawing paths.');
       a.ui.prompt('Save reusable shape stencil', `${m.name} variant`, name => {
         // Built-in shape geometry is converted to a normalized programmable polygon.
         import('../core/stencils.js').then(({ shapeGeometry, getPorts }) => {
-          const points = shapeGeometry(m, { x: 0, y: 0, w: g.w, h: g.h }).points;
+          const points = shapeGeometry(m, { ...g, x: 0, y: 0, rotation: 0, flipX: false, flipY: false }).points;
           const defaultData = structuredClone(n.data); delete defaultData.key;
           const raw = { id: `custom-${uid().slice(-12)}`, name, defaultLabel: n.label, defaultData, geometry: { kind: 'polygon', points: points.map(p => [`w*${(p.x / g.w).toFixed(6)}`, `h*${(p.y / g.h).toFixed(6)}`]) }, size: [g.w, g.h], ports: getPorts(a.doc, n, { ...g, x: 0, y: 0 }).map(p => ({ id: p.id, x: `w*${(p.x / g.w).toFixed(6)}`, y: `h*${(p.y / g.h).toFixed(6)}`, dx: p.dx, dy: p.dy })), style: { fill: g.fill, stroke: g.stroke, textColor: g.textColor, fontSize: g.fontSize, strokeWidth: g.strokeWidth } };
           try { const master = validateMaster(raw); a.store.transact('Save reusable stencil', () => a.doc.stencils[master.id] = master); a.ui.expanded.add('My stencils'); a.ui.renderStencils(); }
@@ -142,7 +144,7 @@ export function installActions(a) {
     help: () => a.ui.help(), 'close-dialog': () => $('dialog').close()
   };
   a.action = async name => {
-    try { if (name !== 'close-dialog') a.finishLabelEdit?.(); const fn = actions[name]; if (!fn) throw new Error(`Unknown command: ${name}`); await fn(); }
+    try { if (name !== 'close-dialog') a.finishLabelEdit?.(); const fn = actions[name] || a.extraActions?.[name]; if (!fn) throw new Error(`Unknown command: ${name}`); await fn(); }
     catch (error) { a.ui.showToast(error.message, true); console.error(error); }
   };
   function updateLeftTab() {
@@ -182,11 +184,12 @@ export function installActions(a) {
         if (prop === 'pageWidth' || prop === 'pageHeight') { const value = Number(el.value); if (!Number.isFinite(value) || value < 200 || value > 100000) throw new Error('Page dimensions must be between 200 and 100000.'); a.store.transact('Change page size', () => a.page[prop === 'pageWidth' ? 'width' : 'height'] = value); return; }
         requireSelection(); const numeric = ['x', 'y', 'w', 'h', 'fontSize', 'strokeWidth'].includes(prop), value = numeric ? Number(el.value) : el.type === 'checkbox' ? el.checked : el.value;
         if (numeric && !Number.isFinite(value)) throw new Error('Enter a finite number.');
-        if (['w', 'h'].includes(prop) && (value < 24 || value > 100000)) throw new Error('Shape dimensions must be between 24 and 100000.');
+        if (['w', 'h'].includes(prop) && (value < Math.max(...selectedNodes().map(id => ['path', 'group', 'rectangle', 'ellipse'].includes(a.page.graph.nodes[id].master) ? 1 : 24), 1) || value > 100000)) throw new Error('Dimensions must respect the selected shape minimum (1 or 24 units) and be at most 100000.');
         if (['x', 'y'].includes(prop) && Math.abs(value) > 999000) throw new Error('Position is outside the supported document range.');
         if (prop === 'fontSize' && (value < 8 || value > 120)) throw new Error('Font size must be between 8 and 120.');
-        if (prop === 'strokeWidth' && (value < .5 || value > 12)) throw new Error('Line width must be between 0.5 and 12.');
+        if (prop === 'strokeWidth' && (value < 0 || value > 64)) throw new Error('Line width must be between 0 and 64.');
         if (['x', 'y'].includes(prop) && selectedNodes().some(id => movementLockedIds(a.page).has(id))) throw new Error('A container with locked members cannot be moved.');
+        if (a.editor.numericProperty(prop, value)) return;
         a.store.transact(`Change ${prop}`, () => {
           for (const id of selectedObjects()) {
             const g = a.page.view.nodes[id] || a.page.view.edges[id]; if (!g) continue;

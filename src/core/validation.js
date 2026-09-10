@@ -1,3 +1,5 @@
+import { pageBounds } from './page.js';
+import { geometryBounds } from './drawing.js';
 import { isVisible, isLocked, ancestors } from './model.js';
 import { getMaster, isContainer, getPorts } from './stencils.js';
 import { unresolvedBindings } from './expression.js';
@@ -20,7 +22,7 @@ export function validateDiagram(doc, page, routes = new Map()) {
   const index = new SpatialIndex();
   for (const n of nodes) {
     const m = getMaster(doc, n.master), g = page.view.nodes[n.id], d = degree.get(n.id);
-    if (!n.label.trim()) push('warning', 'LABEL', 'A shape has an empty label.', [n.id]);
+    if (!n.label.trim() && !m.annotation) push('warning', 'LABEL', 'A shape has an empty label.', [n.id]);
     for (const key of unresolvedBindings(n)) push('warning', 'BINDING', `Label refers to missing data field “${key}”.`, [n.id]);
     if (n.data.key) { const old = keys.get(String(n.data.key)); if (old) push('warning', 'KEY', `Duplicate external key “${n.data.key}”.`, [old, n.id]); else keys.set(String(n.data.key), n.id); }
     if (!m.annotation && !m.container && !d.incoming && !d.outgoing.length && nodes.length > 1) push('warning', 'ISOLATED', `“${n.label.split('\n')[0]}” is not connected.`, [n.id]);
@@ -28,11 +30,12 @@ export function validateDiagram(doc, page, routes = new Map()) {
       if (d.outgoing.length < 2) push('warning', 'DECISION', 'A decision needs at least two outgoing branches.', [n.id]);
       if (d.outgoing.some(e => !e.label.trim())) push('warning', 'BRANCH', 'Decision branches should have labels.', [n.id]);
     }
-    if (n.parentId) {
+    if (n.parentId && page.graph.nodes[n.parentId].master !== 'group') {
       const p = page.view.nodes[n.parentId];
       if (g.x < p.x + 8 || g.y < p.y + 40 || g.x + g.w > p.x + p.w - 8 || g.y + g.h > p.y + p.h - 8) push('warning', 'CONTAINMENT', 'A member extends outside the content area of its container.', [n.id, n.parentId]);
     }
-    if (g.x < 0 || g.y < 0 || g.x + g.w > page.width || g.y + g.h > page.height) push('warning', 'PAGE', 'A shape extends beyond the exported page.', [n.id]);
+    const pb = pageBounds(page), gb = geometryBounds(g);
+    if (page.canvasMode !== 'infinite' && (gb.x < pb.x || gb.y < pb.y || gb.x + gb.w > pb.x + pb.w || gb.y + gb.h > pb.y + pb.h)) push('warning', 'PAGE', 'A shape extends beyond the exported page.', [n.id]);
     if (isVisible(page, n.id) && !m.annotation && !m.container) {
       for (const other of index.query(inflate(g, -2))) {
         if (page.graph.nodes[other].parentId === n.parentId) push('warning', 'OVERLAP', 'Two peer shapes overlap.', [other, n.id]);

@@ -1,3 +1,5 @@
+import { tessellateScene } from './stroke.js';
+import { rotatePoint } from '../core/drawing.js';
 import { parseColor, triangulate, distance } from '../core/geometry.js';
 import { FONT } from './scene.js';
 const SHARED = `
@@ -17,13 +19,14 @@ const BACKGROUND_SHADER = SHARED + `
   let screen = position.xy / camera.dpr;
   let p = (screen - camera.pan) / camera.zoom;
   var color = vec3f(0.938, 0.946, 0.961);
-  if (all(p >= vec2f(4.0)) && all(p <= camera.page + vec2f(5.0))) { color = vec3f(0.87, 0.889, 0.917); }
-  if (all(p >= vec2f(0.0)) && all(p <= camera.page)) {
+  let local = p - camera.extra;
+  if (camera.pad < 0.5 && all(local >= vec2f(4.0)) && all(local <= camera.page + vec2f(5.0))) { color = vec3f(0.87, 0.889, 0.917); }
+  if (camera.pad > 0.5 || (all(local >= vec2f(0.0)) && all(local <= camera.page))) {
     color = vec3f(1.0);
-    let edge = min(min(p.x, p.y), min(camera.page.x - p.x, camera.page.y - p.y));
-    if (edge < 0.75 / camera.zoom) { color = vec3f(0.82, 0.85, 0.89); }
-    if (camera.grid > 0.5 && camera.zoom > 0.3) {
-      let g = (fract(p / 20.0 + 0.5) - 0.5) * 20.0 * camera.zoom;
+    let edge = min(min(local.x, local.y), min(camera.page.x - local.x, camera.page.y - local.y));
+    if (camera.pad < 0.5 && edge < 0.75 / camera.zoom) { color = vec3f(0.82, 0.85, 0.89); }
+    if (camera.grid > 0.0 && camera.zoom > 0.3) {
+      let g = (fract(p / camera.grid + 0.5) - 0.5) * camera.grid * camera.zoom;
       let dotAlpha = 1.0 - smoothstep(0.45, 1.05, length(g));
       color = mix(color, vec3f(0.87, 0.90, 0.93), dotAlpha * 0.72);
     }
@@ -81,32 +84,6 @@ class TextAtlas {
   upload() { for (const p of this.pages) if (p.dirty) { this.device.queue.copyExternalImageToTexture({ source: p.canvas }, { texture: p.texture, premultipliedAlpha: false }, [this.size, this.size]); p.dirty = false; } }
   dispose() { this.reset(0); }
 }
-function tessellate(scene) {
-  const data = []; const vertex = (p, c) => data.push(p.x, p.y, ...c);
-  const segment = (a, b, width, c) => {
-    const l = distance(a, b); if (l < .0001) return;
-    const nx = -(b.y - a.y) / l * width / 2, ny = (b.x - a.x) / l * width / 2;
-    const q = [{ x: a.x + nx, y: a.y + ny }, { x: b.x + nx, y: b.y + ny }, { x: b.x - nx, y: b.y - ny }, { x: a.x - nx, y: a.y - ny }];
-    for (const i of [0, 1, 2, 0, 2, 3]) vertex(q[i], c);
-  };
-  for (const p of scene.primitives) {
-    if (p.kind === 'polygon' && p.fill && p.fill !== 'transparent' && p.fill !== 'none' && p.points.length >= 3) {
-      const c = parseColor(p.fill); const indices = triangulate(p.points); for (const i of indices) vertex(p.points[i], c);
-    }
-    if (p.stroke && p.stroke !== 'transparent' && p.stroke !== 'none') {
-      const c = parseColor(p.stroke), points = p.kind === 'polygon' ? [...p.points, p.points[0]] : p.points; let offset = 0;
-      for (let i = 1; i < points.length; i++) {
-        const a = points[i - 1], b = points[i];
-        if (!p.dashed) segment(a, b, p.width, c);
-        else {
-          const length = distance(a, b); let t = 0;
-          while (t < length) { const phase = offset % 11, step = Math.min(length - t, (phase < 6 ? 6 : 11) - phase || 1); if (phase < 6) segment({ x: a.x + (b.x - a.x) * t / length, y: a.y + (b.y - a.y) * t / length }, { x: a.x + (b.x - a.x) * (t + step) / length, y: a.y + (b.y - a.y) * (t + step) / length }, p.width, c); t += step; offset += step; }
-        }
-      }
-    }
-  }
-  return new Float32Array(data);
-}
 export class WebGPURenderer {
   static async create(canvas) {
     if (!navigator.gpu) throw new Error('WebGPU is not exposed in this browser context.');
@@ -132,7 +109,7 @@ export class WebGPURenderer {
     this.geometry = new GrowBuffer(d, GPUBufferUsage.VERTEX);
     this.atlas = new TextAtlas(d, textureLayout, d.createSampler({ magFilter: 'linear', minFilter: 'linear' }));
   }
-  setScene(scene, camera) { this.scene = scene; this.geometry.upload(tessellate(scene), 6); this.rebuildText(camera); }
+  setScene(scene, camera) { this.scene = scene; this.geometry.upload(tessellateScene(scene), 6); this.rebuildText(camera); }
   rebuildText(camera) {
     if (!this.scene) return;
     const bucket = Math.min(4, Math.max(1, 2 ** (Math.ceil(Math.log2(camera.zoom * camera.dpr) * 2) / 2)));
@@ -140,10 +117,13 @@ export class WebGPURenderer {
     const vertices = [];
     for (const label of this.scene.texts) {
       if (!label.lines.some(Boolean)) continue;
-      const e = this.atlas.get(label); const data = vertices[e.page] ||= []; const c = parseColor(label.color);
+      const e = this.atlas.get(label); const data = vertices[e.page] ||= []; const c = parseColor(label.color); c[3] *= label.opacity ?? 1;
       const x = label.x + (label.align === 'center' ? (label.w - e.width) / 2 : label.align === 'right' ? label.w - e.width : 0) - e.pad / e.scale;
       const y = label.y - e.pad / e.scale, w = e.w / e.scale, h = e.h / e.scale, s = this.atlas.size;
-      for (const [dx, dy] of [[0, 0], [1, 0], [1, 1], [0, 0], [1, 1], [0, 1]]) data.push(x + dx * w, y + dy * h, (e.x + dx * e.w) / s, (e.y + dy * e.h) / s, ...c);
+      for (const [dx, dy] of [[0, 0], [1, 0], [1, 1], [0, 0], [1, 1], [0, 1]]) {
+        const p = label.rotation ? rotatePoint({ x: x + dx * w, y: y + dy * h }, label.rotationCenter, label.rotation) : { x: x + dx * w, y: y + dy * h };
+        data.push(p.x, p.y, (e.x + dx * e.w) / s, (e.y + dy * e.h) / s, ...c);
+      }
     }
     for (let i = 0; i < Math.max(vertices.length, this.textBuffers.length); i++) {
       this.textBuffers[i] ||= new GrowBuffer(this.device, GPUBufferUsage.VERTEX); this.textBuffers[i].upload(new Float32Array(vertices[i] || []), 8);
@@ -155,7 +135,7 @@ export class WebGPURenderer {
     if (`${w}:${h}` !== this.sizeKey) { canvas.width = w; canvas.height = h; this.msaa?.destroy(); this.msaa = d.createTexture({ size: [w, h], sampleCount: 4, format: this.format, usage: GPUTextureUsage.RENDER_ATTACHMENT }); this.sizeKey = `${w}:${h}`; }
     const requiredBucket = Math.min(4, Math.max(1, 2 ** (Math.ceil(Math.log2(camera.zoom * camera.dpr) * 2) / 2)));
     if (requiredBucket !== this.bucket) this.rebuildText(camera);
-    d.queue.writeBuffer(this.uniform, 0, new Float32Array([camera.width, camera.height, camera.x, camera.y, camera.zoom, camera.dpr, page.width, page.height, grid ? 1 : 0, 0, 0, 0]));
+    d.queue.writeBuffer(this.uniform, 0, new Float32Array([camera.width, camera.height, camera.x, camera.y, camera.zoom, camera.dpr, page.width, page.height, grid ? (page.gridSize || 10) * Math.max(1, Math.ceil(12 / (page.gridSize || 10) / camera.zoom)) : 0, page.canvasMode === 'infinite' ? 1 : 0, page.originX || 0, page.originY || 0]));
     const encoder = d.createCommandEncoder(); const pass = encoder.beginRenderPass({ colorAttachments: [{ view: this.msaa.createView(), resolveTarget: this.context.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'discard', clearValue: { r: .94, g: .95, b: .96, a: 1 } }] });
     pass.setBindGroup(0, this.cameraGroup); pass.setPipeline(this.backgroundPipeline); pass.draw(3);
     if (this.geometry.count) { pass.setPipeline(this.geometryPipeline); pass.setVertexBuffer(0, this.geometry.buffer); pass.draw(this.geometry.count); }

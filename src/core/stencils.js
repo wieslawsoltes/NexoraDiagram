@@ -1,3 +1,4 @@
+import { flattenPath, transformPoint, rotatePoint } from './drawing.js';
 import { evaluate } from './expression.js';
 import { roundedRect, boxPoints, isSimplePolygon, distance } from './geometry.js';
 const ports = [
@@ -6,6 +7,8 @@ const ports = [
 ];
 const def = (id, name, category, kind, size, style = {}, extra = {}) => ({ id, name, category, geometry: { kind }, size, ports, style: { fill: '#f0f7ff', stroke: '#7b9cbe', textColor: '#253b53', fontSize: 16, strokeWidth: 1.5, ...style }, ...extra });
 export const BUILTINS = Object.fromEntries([
+  def('path', 'Drawing path', 'Drawing', 'path', [160, 90], { fill: 'none' }, { annotation: true, hidden: true, ports: [] }),
+  def('group', 'Group', 'Structure', 'group', [160, 90], { fill: 'none', stroke: 'none' }, { container: true, hidden: true, ports: [] }),
   def('process', 'Process', 'Basic flowchart', 'roundrect', [170, 76]),
   def('decision', 'Decision', 'Basic flowchart', 'diamond', [138, 98], { fill: '#fff7e6', stroke: '#d5a65a', textColor: '#7a541f' }),
   def('terminator', 'Start / End', 'Basic flowchart', 'pill', [130, 54], { fill: '#e5f5ef', stroke: '#6da993', textColor: '#276753' }),
@@ -27,6 +30,7 @@ export const allMasters = doc => ({ ...BUILTINS, ...doc.stencils });
 export const getMaster = (doc, id) => doc.stencils?.[id] || BUILTINS[id] || BUILTINS.process;
 export const isContainer = (doc, node) => Boolean(getMaster(doc, node.master).container);
 export function shapeGeometry(master, g) {
+  if (master.geometry.kind === 'path') return { points: flattenPath(g), details: [], closed: Boolean(g.closed) };
   const { x, y, w, h } = g, kind = master.geometry.kind; let points; const details = [];
   const local = p => p.map(([a, b]) => ({ x: x + a, y: y + b }));
   switch (kind) {
@@ -56,11 +60,16 @@ export function shapeGeometry(master, g) {
   }
   points = points.filter((p, i) => !i || distance(p, points[i - 1]) > 1e-6);
   if (points.length > 2 && distance(points[0], points.at(-1)) < 1e-6) points.pop();
-  return { points, details };
+  return { points: points.map(p => transformPoint(p, g)), details: details.map(ps => ps.map(p => transformPoint(p, g))), closed: true };
 }
 export function getPorts(doc, node, g) {
   const m = getMaster(doc, node.master);
-  return (node.ports || m.ports || []).map(p => ({ id: p.id, x: g.x + evaluate(p.x, g), y: g.y + evaluate(p.y, g), dx: p.dx, dy: p.dy }));
+  return (node.ports || m.ports || []).map(p => {
+    const at = transformPoint({ x: g.x + evaluate(p.x, g), y: g.y + evaluate(p.y, g) }, g);
+    const normal = rotatePoint({ x: p.dx * (g.flipX ? -1 : 1), y: p.dy * (g.flipY ? -1 : 1) }, { x: 0, y: 0 }, g.rotation || 0);
+    const horizontal = Math.abs(normal.x) >= Math.abs(normal.y);
+    return { id: p.id, ...at, dx: horizontal ? Math.sign(normal.x) : 0, dy: horizontal ? 0 : Math.sign(normal.y) };
+  });
 }
 export function getPort(doc, page, endpoint, toward) {
   const n = page.graph.nodes[endpoint.nodeId], g = page.view.nodes[endpoint.nodeId]; if (!n || !g) return null;
@@ -71,8 +80,10 @@ export function getPort(doc, page, endpoint, toward) {
 }
 export function validateStyle(style = {}) {
   for (const key of ['fill', 'stroke', 'textColor', 'headerFill']) if (style[key] !== undefined && (typeof style[key] !== 'string' || !/^(#[0-9a-f]{6}|transparent|none)$/i.test(style[key]))) throw new Error(`Invalid ${key}: use #RRGGBB, transparent, or none.`);
-  for (const [key, min, max] of [['fontSize', 8, 120], ['strokeWidth', 0, 12], ['z', -1000000, 1000000], ['weight', 100, 900], ['labelPosition', 0, 1]]) if (style[key] !== undefined && (!Number.isFinite(style[key]) || style[key] < min || style[key] > max)) throw new Error(`Invalid ${key}.`);
+  for (const [key, min, max] of [['fontSize', 8, 120], ['strokeWidth', 0, 64], ['rotation', 0, 360], ['opacity', 0, 1], ['z', -1000000, 1000000], ['weight', 100, 900], ['labelPosition', 0, 1]]) if (style[key] !== undefined && (!Number.isFinite(style[key]) || style[key] < min || style[key] > max)) throw new Error(`Invalid ${key}.`);
   if (style.align !== undefined && !['left', 'center', 'right'].includes(style.align)) throw new Error('Invalid text alignment.');
+  for (const [key, values] of Object.entries({ dash: ['solid', 'dash', 'dot', 'dashdot'], lineCap: ['butt', 'round', 'square'], lineJoin: ['miter', 'round', 'bevel'], startArrow: ['none', 'triangle', 'open', 'diamond', 'circle'], endArrow: ['none', 'triangle', 'open', 'diamond', 'circle'] })) if (style[key] !== undefined && !values.includes(style[key])) throw new Error(`Invalid ${key}.`);
+  for (const key of ['flipX', 'flipY', 'dashed']) if (style[key] !== undefined && typeof style[key] !== 'boolean') throw new Error(`Invalid ${key}.`);
   return style;
 }
 export function validatePorts(list, g) {

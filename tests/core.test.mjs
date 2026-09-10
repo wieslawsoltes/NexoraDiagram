@@ -30,7 +30,7 @@ test('bindings preserve missing-field diagnostics and block prototype traversal'
  assert.equal(resolveLabel({label:'{{constructor.name}}',data:{}}),'⟨constructor.name⟩');
 });
 test('all built-in shapes triangulate with area conservation', () => {
- for(const m of Object.values(BUILTINS)){
+ for(const m of Object.values(BUILTINS).filter(m=>!m.hidden)){
    const points=shapeGeometry(m,{x:0,y:0,w:m.size[0],h:m.size[1]}).points;
    const indices=triangulate(points);let area=0;
    for(let i=0;i<indices.length;i+=3)area+=Math.abs(polygonArea([points[indices[i]],points[indices[i+1]],points[indices[i+2]]]));
@@ -140,7 +140,7 @@ test('duplicates receive a higher draw order than the original shape', () => {
  const [copy]=duplicateItems(p,[id]);assert.ok(p.view.nodes[copy].z>400);assert.ok(p.view.nextZ>p.view.nodes[copy].z);
 });
 test('all built-in silhouettes can be saved as reusable polygon stencils', () => {
- for (const m of Object.values(BUILTINS)) {
+ for (const m of Object.values(BUILTINS).filter(m => !m.hidden)) {
    const g={x:0,y:0,w:m.size[0],h:m.size[1]};const points=shapeGeometry(m,g).points;
    const custom={id:`custom-${m.id}`,name:m.name,size:m.size,geometry:{kind:'polygon',points:points.map(p=>[`w*${(p.x/g.w).toFixed(6)}`,`h*${(p.y/g.h).toFixed(6)}`])},ports:[]};
    assert.doesNotThrow(()=>validateMaster(custom),m.id);

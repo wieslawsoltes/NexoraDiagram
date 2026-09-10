@@ -1,11 +1,13 @@
 import { getMaster, getPorts, isContainer, validateMaster, validateStyle, validatePorts, BUILTINS, shapeGeometry } from './stencils.js';
+import { validatePath, geometryBounds } from './drawing.js';
+import { validatePageSettings } from './page.js';
 import { contains, union, round, isSimplePolygon } from './geometry.js';
 export const FORMAT = 'nexora.diagram';
 export const VERSION = 1;
 let fallbackId = 0;
 export const uid = (prefix = 'n') => `${prefix}_${globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}_${++fallbackId}`}`;
 export function createPage(name = 'Page 1') {
-  return { id: uid('page'), name, width: 1320, height: 900, graph: { nodes: {}, edges: {} }, view: { nodes: {}, edges: {}, nextZ: 1 },
+  return { id: uid('page'), name, width: 1320, height: 900, canvasMode: 'fixed', originX: 0, originY: 0, units: 'px', gridSize: 10, drawingScale: 1, graph: { nodes: {}, edges: {} }, view: { nodes: {}, edges: {}, nextZ: 1 },
     layers: [{ id: 'diagram', name: 'Diagram', visible: true, locked: false }, { id: 'annotations', name: 'Annotations', visible: true, locked: false }], constraints: [] };
 }
 export function createDocument(title = 'Untitled diagram') {
@@ -38,8 +40,8 @@ export function isVisible(page, id) {
 }
 export function isLocked(page, id) {
   const n = page.graph.nodes[id] || page.graph.edges[id]; if (!n) return true;
-  if (page.layers.find(l => l.id === n.layerId)?.locked) return true;
-  return page.graph.nodes[id] ? ancestors(page, id).some(p => page.layers.find(l => l.id === page.graph.nodes[p].layerId)?.locked) : false;
+  if (n.locked || page.layers.find(l => l.id === n.layerId)?.locked) return true;
+  return page.graph.nodes[id] ? ancestors(page, id).some(p => page.graph.nodes[p].locked || page.layers.find(l => l.id === page.graph.nodes[p].layerId)?.locked) : false;
 }
 /** An unlocked container cannot translate its locked descendants. */
 export function movementLockedIds(page) {
@@ -51,8 +53,9 @@ export function movementLockedIds(page) {
 }
 export function assignParent(doc, page, id) {
   const n = page.graph.nodes[id], g = page.view.nodes[id]; if (!n || isContainer(doc, n)) return;
+  if (n.parentId && page.graph.nodes[n.parentId]?.master === 'group') return;
   const center = { x: g.x + g.w / 2, y: g.y + g.h / 2 };
-  const choices = Object.values(page.graph.nodes).filter(p => p.id !== id && isContainer(doc, p) && isVisible(page, p.id) && !isLocked(page, p.id) && contains(page.view.nodes[p.id], center));
+  const choices = Object.values(page.graph.nodes).filter(p => p.id !== id && p.master !== 'group' && isContainer(doc, p) && isVisible(page, p.id) && !isLocked(page, p.id) && contains(page.view.nodes[p.id], center));
   choices.sort((a, b) => page.view.nodes[a.id].w * page.view.nodes[a.id].h - page.view.nodes[b.id].w * page.view.nodes[b.id].h);
   n.parentId = choices[0]?.id || null;
 }
@@ -98,6 +101,7 @@ export function assertDocument(doc) {
     const p = doc.pages?.[pageId]; if (!p || p.id !== pageId || !p.graph?.nodes || !p.graph.edges || !p.view?.nodes || !p.view.edges) throw new Error('Invalid page structure.');
     if (typeof p.name !== 'string' || p.name.length > 100) throw new Error('Invalid page name.');
     if (![p.width, p.height].every(n => Number.isFinite(n) && n >= 200 && n <= 100000)) throw new Error('Page size must be between 200 and 100000 document units.');
+    validatePageSettings(p);
     if (!Array.isArray(p.layers) || !p.layers.length || p.layers.length > 100 || new Set(p.layers.map(l => l.id)).size !== p.layers.length) throw new Error('Invalid layer definitions.');
     if (p.layers.some(l => !safeId(l.id) || typeof l.name !== 'string' || l.name.length > 100 || typeof l.visible !== 'boolean' || typeof l.locked !== 'boolean')) throw new Error('Invalid layer properties.');
     const nodeIds = Object.keys(p.graph.nodes);
@@ -110,8 +114,10 @@ export function assertDocument(doc) {
       if (typeof n.master !== 'string' || !(Object.hasOwn(BUILTINS, n.master) || Object.hasOwn(doc.stencils, n.master))) throw new Error('Shape references an unknown stencil.');
       if (n.id !== id || !g || typeof n.label !== 'string' || n.label.length > 10000 || !n.data || typeof n.data !== 'object' || Array.isArray(n.data)) throw new Error(`Invalid shape ${id}.`);
       if (!p.layers.some(l => l.id === n.layerId)) throw new Error(`Missing layer for ${id}.`);
-      if (!['x', 'y', 'w', 'h'].every(k => Number.isFinite(g[k]) && Math.abs(g[k]) <= 1e6) || g.w < 24 || g.h < 24) throw new Error(`Invalid geometry for ${id}.`);
+      if (!['x', 'y', 'w', 'h'].every(k => Number.isFinite(g[k]) && Math.abs(g[k]) <= 1e6) || g.w < (['path', 'group', 'rectangle', 'ellipse'].includes(n.master) ? 1 : 24) || g.h < (['path', 'group', 'rectangle', 'ellipse'].includes(n.master) ? 1 : 24)) throw new Error(`Invalid geometry for ${id}.`);
       validateStyle(g);
+      if (n.locked !== undefined && typeof n.locked !== 'boolean') throw new Error('Invalid object lock.');
+      if (n.master === 'path') validatePath(g);
       if (n.ports) validatePorts(n.ports, g);
       if (Object.hasOwn(doc.stencils, n.master) && !isSimplePolygon(shapeGeometry(getMaster(doc, n.master), g).points)) throw new Error('Custom shape is not simple at its current size.');
       if (n.parentId && (!p.graph.nodes[n.parentId] || !isContainer(doc, p.graph.nodes[n.parentId]))) throw new Error('Container parent is missing or is not a container.');
@@ -122,6 +128,7 @@ export function assertDocument(doc) {
     for (const [id, e] of Object.entries(p.graph.edges)) {
       if (!record(e) || e.id !== id || !record(p.view.edges[id]) || typeof e.label !== 'string' || e.label.length > 10000 || !record(e.data) || !p.layers.some(l => l.id === e.layerId)) throw new Error('Invalid connector.');
       validateStyle(p.view.edges[id]);
+      if (e.locked !== undefined && typeof e.locked !== 'boolean') throw new Error('Invalid connector lock.');
       for (const ep of [e.from, e.to]) {
         const n = p.graph.nodes[ep?.nodeId]; if (!n) throw new Error('Connector endpoint references a missing shape.');
         if (!getPorts(doc, n, p.view.nodes[n.id]).length) throw new Error('Connector references a shape without connection points.');
@@ -139,4 +146,4 @@ export function parseDocument(text) {
   const doc = JSON.parse(text, (key, value) => { if (['__proto__', 'prototype', 'constructor'].includes(key)) throw new Error('Unsafe object key in project.'); return value; });
   return assertDocument(doc);
 }
-export function selectionBounds(page, ids) { let b; for (const id of ids) if (page.view.nodes[id]) b = union(b, page.view.nodes[id]); return b; }
+export function selectionBounds(page, ids) { let b; for (const id of ids) if (page.view.nodes[id]) b = union(b, geometryBounds(page.view.nodes[id])); return b; }

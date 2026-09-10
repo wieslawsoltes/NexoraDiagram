@@ -1,3 +1,5 @@
+import { strokeDash } from '../core/drawing.js';
+import { markerPrimitives } from './stroke.js';
 import { allMasters, getMaster, shapeGeometry, isContainer } from '../core/stencils.js';
 import { isVisible } from '../core/model.js';
 import { resolveLabel } from '../core/expression.js';
@@ -33,13 +35,7 @@ export function labelForNode(doc, n, g) {
   else if (m.geometry.kind === 'cylinder') { area.y += g.h * .1; area.h -= g.h * .1; }
   const weight = g.weight || (m.container ? 600 : 400), layout = layoutText(text, area.w, size, weight, Math.max(1, Math.floor(area.h / (size * 1.3))));
   const totalHeight = layout.lines.length * layout.lineHeight;
-  return { id: n.id, text, lines: layout.lines, x: area.x, y: area.y + (area.h - totalHeight) / 2, w: area.w, h: totalHeight, fontSize: size, lineHeight: layout.lineHeight, color: g.textColor || '#334155', align, weight };
-}
-function arrow(points, size = 8) {
-  if (points.length < 2) return [];
-  const b = points.at(-1); let a = points.at(-2); for (let i = points.length - 2; i >= 0; i--) if (Math.hypot(points[i].x - b.x, points[i].y - b.y) > .01) { a = points[i]; break; }
-  const len = Math.hypot(b.x - a.x, b.y - a.y) || 1, dx = (b.x - a.x) / len, dy = (b.y - a.y) / len;
-  return [b, { x: b.x - dx * size - dy * size * .47, y: b.y - dy * size + dx * size * .47 }, { x: b.x - dx * size + dy * size * .47, y: b.y - dy * size - dx * size * .47 }];
+  return { id: n.id, text, lines: layout.lines, x: area.x, y: area.y + (area.h - totalHeight) / 2, w: area.w, h: totalHeight, rotation: g.rotation || 0, rotationCenter: { x: g.x + g.w / 2, y: g.y + g.h / 2 }, opacity: g.opacity ?? 1, fontSize: size, lineHeight: layout.lineHeight, color: g.textColor || '#334155', align, weight };
 }
 /** One backend-neutral display list powers GPU rendering, Canvas fallback, and SVG export. */
 export function buildScene(doc, page, routes, visibleIds = null) {
@@ -50,16 +46,17 @@ export function buildScene(doc, page, routes, visibleIds = null) {
   // Containers are behind routes; regular shapes occlude incoming connector stubs.
   for (const n of nodes.filter(n => isContainer(doc, n))) {
     const g = page.view.nodes[n.id], m = getMaster(doc, n.master);
-    polygon(boxPoints(g), g.fill, g.stroke, g.strokeWidth || 1, { id: n.id });
-    polygon(boxPoints({ x: g.x, y: g.y, w: g.w, h: 38 }), g.headerFill || '#f1f4f9', null);
-    line([{ x: g.x, y: g.y + 38 }, { x: g.x + g.w, y: g.y + 38 }], g.stroke, .8);
+    if (n.master === 'group') continue;
+    polygon(boxPoints(g), g.fill, g.stroke, g.strokeWidth ?? 1, { id: n.id, dashArray: strokeDash(g), lineCap: g.lineCap, lineJoin: g.lineJoin, opacity: g.opacity ?? 1 });
+    polygon(boxPoints({ x: g.x, y: g.y, w: g.w, h: 38 }), g.headerFill || '#f1f4f9', null, 0, { id: n.id, opacity: g.opacity ?? 1 });
+    line([{ x: g.x, y: g.y + 38 }, { x: g.x + g.w, y: g.y + 38 }], g.stroke, .8, false, { id: n.id, opacity: g.opacity ?? 1 });
     texts.push(labelForNode(doc, n, g));
   }
   const edgeLabels = [];
   for (const e of Object.values(page.graph.edges)) if (visible(e.id)) {
     const route = routes.get(e.id); if (!route?.points?.length) continue; const g = page.view.edges[e.id];
     const stroke = route.status === 'blocked' ? '#d46a54' : g.stroke || '#788da4';
-    line(route.points, stroke, g.strokeWidth || 1.6, g.dashed, { id: e.id }); polygon(arrow(route.points), stroke, null);
+    line(route.points, stroke, g.strokeWidth ?? 1.6, false, { id: e.id, dashArray: strokeDash(g), lineCap: g.lineCap, lineJoin: g.lineJoin, opacity: g.opacity ?? 1 }); primitives.push(...markerPrimitives(route.points, { ...g, stroke, id: e.id }, 'triangle'));
     if (e.label) {
       const p = pointAlong(route.points, g.labelPosition ?? .5), fs = 12, layout = layoutText(resolveLabel(e), 150, fs, 400, 2), w = layout.width + 14, h = layout.lines.length * layout.lineHeight + 4;
       edgeLabels.push({ id: e.id, p, w, h, layout, fs, color: stroke });
@@ -67,11 +64,17 @@ export function buildScene(doc, page, routes, visibleIds = null) {
   }
   for (const n of nodes.filter(n => !isContainer(doc, n))) {
     const g = page.view.nodes[n.id], m = getMaster(doc, n.master), geometry = shapeGeometry(m, g);
+    if (m.geometry.kind === 'path') {
+      primitives.push({ kind: g.closed ? 'polygon' : 'line', points: geometry.points, fill: g.closed ? g.fill : 'none', stroke: g.stroke, width: g.strokeWidth ?? 2, id: n.id, dashArray: strokeDash(g), lineCap: g.lineCap, lineJoin: g.lineJoin, opacity: g.opacity ?? 1 });
+      if (!g.closed) primitives.push(...markerPrimitives(geometry.points, { ...g, id: n.id }));
+      if (n.label) texts.push(labelForNode(doc, n, g));
+      continue;
+    }
     if (m.geometry.kind !== 'text') {
       // Subtle document-space shadow, not a bitmap: scales with the shape.
-      if (!m.annotation) polygon(geometry.points.map(p => ({ x: p.x, y: p.y + 2 })), '#e9edf3', null);
-      polygon(geometry.points, g.fill, g.stroke, g.strokeWidth || 1.5, { id: n.id });
-      for (const detail of geometry.details) line(detail, g.stroke, g.strokeWidth || 1.5);
+      if (!m.annotation && g.fill && !['none', 'transparent'].includes(g.fill)) polygon(geometry.points.map(p => ({ x: p.x, y: p.y + 2 })), '#e9edf3', null, 0, { id: n.id, opacity: g.opacity ?? 1 });
+      polygon(geometry.points, g.fill, g.stroke, g.strokeWidth ?? 1.5, { id: n.id, dashArray: strokeDash(g), lineCap: g.lineCap, lineJoin: g.lineJoin, opacity: g.opacity ?? 1 });
+      for (const detail of geometry.details) line(detail, g.stroke, g.strokeWidth ?? 1.5, false, { id: n.id, opacity: g.opacity ?? 1 });
     }
     texts.push(labelForNode(doc, n, g));
   }
