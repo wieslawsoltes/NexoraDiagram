@@ -1,0 +1,50 @@
+name: Apply verified advanced editor update
+on:
+  push:
+    branches: ['feat/advanced-authoring-collaboration']
+    paths: ['.nexora-transfer/**', '.github/workflows/apply-advanced-update.yml']
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Reconstruct and verify exact tested patch
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          import { brotliDecompressSync } from 'node:zlib';
+          import { createHash } from 'node:crypto';
+          const parts = Array.from({length:11}, (_,i) => readFileSync(`.nexora-transfer/part-${String(i).padStart(2,'0')}.br`));
+          const data = brotliDecompressSync(Buffer.concat(parts), {maxOutputLength:1000000});
+          if (data.length !== 265679 || createHash('sha256').update(data).digest('hex') !== '811a563b5ed6d6fa95b2bf00fbb30562c2fbb4d62e3dee86237d03cb41e9bc33') throw Error('Patch digest mismatch');
+          writeFileSync('/tmp/nexora-advanced.patch', data);
+          console.log('Verified complete patch bytes and SHA-256');
+          JS
+          git apply --check /tmp/nexora-advanced.patch
+          git apply --index /tmp/nexora-advanced.patch
+      - name: Reproduce syntax, model, build, and deployment regressions
+        run: |
+          find src -name '*.js' -print0 | xargs -0 -n1 node --check
+          npm run build
+          npm test
+          npm run build:pages
+      - name: Commit verified changes on the requested feature branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$GITHUB_REF" = 'refs/heads/feat/advanced-authoring-collaboration'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat: native interchange, peer collaboration and advanced vector authoring'
+          git -c credential.helper='!f() { printf "%s\n" "username=x-access-token" "password=$GH_TOKEN"; }; f' push origin HEAD:refs/heads/feat/advanced-authoring-collaboration
