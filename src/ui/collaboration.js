@@ -25,7 +25,7 @@ export class CollaborationSession {
     if(this.sent.has(envelope.id))return;this.sent.add(envelope.id);while(this.sent.size>4096)this.sent.delete(this.sent.values().next().value);
     const data=JSON.stringify(envelope);if(data.length>limit)throw new Error('Session message exceeds the 50 MB limit.');
     if(except!=='broadcast')this.broadcast?.postMessage(envelope);
-    for(const ch of this.channels)if(ch!==except&&ch.readyState==='open')this.sendChannel(ch,data).catch(error=>this.error(error));
+    for(const ch of this.channels)if(ch!==except&&ch.readyState==='open')this.sendChannel(ch,data).catch(error=>this.error(error,'transport'));
   }
   async sendChannel(channel,text){
     // UTF-8 byte-safe framing; avoids SCTP max-message-size and string splitting hazards.
@@ -43,6 +43,7 @@ export class CollaborationSession {
     if(entry.parts.size===entry.total){this.assemblies.delete(id);const bytes=new Uint8Array(entry.size);let at=0;for(let i=0;i<entry.total;i++){const p=entry.parts.get(i);bytes.set(p,at);at+=p.length;}this.receive(JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes)),channel);}
   }
   receive(envelope,source){
+    if(this.disposed)return;
     try{
       if(!envelope||envelope.transport!=='nexora.peer.v1'||envelope.room!==this.room||envelope.sender===this.peer||typeof envelope.id!=='string'||envelope.id.length>200||!/^peer_[\w-]+$/.test(envelope.sender)||this.sent.has(envelope.id))return;
       const body=envelope.body;if(!body||typeof body!=='object')return;const p=this.peers.get(envelope.sender)||{};p.seen=Date.now();p.name=String(body.name||p.name||'Editor').slice(0,60);this.peers.set(envelope.sender,p);
@@ -56,6 +57,9 @@ export class CollaborationSession {
         if(this.app.store.pending){if(this.queue.length>=1000){this.close();throw new Error('Receive queue exceeded its safety limit. Reconnect after completing the active gesture.');}this.queue.push({envelope,source});return;}
         if(!this.ready){this.engine.records=new Map();const result=this.engine.apply(body.state);this.ready=true;this.joining=false;this.app.store.readOnlyReason=this.oldReadOnly;this.app.store.undoStack=[];this.app.store.redoStack=[];this.app.store.bytes=0;this.install(result.doc);this.send({type:'hello',joining:false,name:this.name,documentId:result.doc.id});}
         else{const result=this.engine.apply(body.type==='state'?body.state:body.operation);if(result.changed)this.install(result.doc);}
+        // A validated snapshot on an open channel acknowledges successful reconnection.
+        // Clear only transient transport status; never hide document validation failures.
+        if(body.type==='state'&&source?.readyState==='open')this.clearTransportError();
       }else if(body.type==='presence'){
         p.pageId=String(body.pageId||'');if(body.point&&Number.isFinite(body.point.x)&&Number.isFinite(body.point.y)&&Math.max(Math.abs(body.point.x),Math.abs(body.point.y))<=1e6)p.point=body.point;
       }else if(body.type==='leave'){this.peers.delete(envelope.sender);}
@@ -80,7 +84,7 @@ export class CollaborationSession {
   }
   attachChannel(channel){
     channel._nexoraId=invitationId();this.channels.add(channel);channel.onmessage=e=>{try{this.channelMessage(e.data,channel);}catch(error){this.error(error);}};
-    channel.onopen=()=>this.send({type:'hello',joining:!this.ready,name:this.name,documentId:this.engine.last.id});channel.onclose=()=>this.channels.delete(channel);channel.onerror=()=>this.error(new Error('Peer data channel failed.'));
+    channel.onopen=()=>this.send({type:'hello',joining:!this.ready,name:this.name,documentId:this.engine.last.id});channel.onclose=()=>this.channels.delete(channel);channel.onerror=()=>this.error(new Error('Peer data channel failed.'),'transport');
   }
   connection(){const pc=new RTCPeerConnection({iceServers:this.iceServers});this.connections.add(pc);pc.ondatachannel=e=>this.attachChannel(e.channel);pc.onconnectionstatechange=()=>{if(['failed','disconnected'].includes(pc.connectionState))this.app.ui.showToast('Peer disconnected. Local edits remain available; exchange a new invitation to reconnect.');};return pc;}
   async gather(pc){if(pc.iceGatheringState==='complete')return;await new Promise((resolve,reject)=>{const timer=setTimeout(()=>{pc.removeEventListener('icegatheringstatechange',done);reject(new Error('Network candidate collection timed out. Check ICE configuration.'));},20000);const done=()=>{if(pc.iceGatheringState==='complete'){clearTimeout(timer);pc.removeEventListener('icegatheringstatechange',done);resolve();}};pc.addEventListener('icegatheringstatechange',done);});}
@@ -89,6 +93,12 @@ export class CollaborationSession {
   async answerOffer(text){const description=this.parseSignal(text,'offer'),pc=this.connection();await pc.setRemoteDescription(description);await pc.setLocalDescription(await pc.createAnswer());await this.gather(pc);return JSON.stringify({protocol:'nexora.invite.v1',room:this.room,description:pc.localDescription});}
   async acceptAnswer(text){if(!this.pendingOffer)throw new Error('Create an offer first.');await this.pendingOffer.setRemoteDescription(this.parseSignal(text,'answer'));this.pendingOffer=null;}
   overlay(){return [...this.peers.values()].filter(p=>p.point&&p.pageId===this.app.pageId&&Date.now()-p.seen<15000).map(p=>{const q=this.app.worldToScreen(p.point);return `<g pointer-events="none" transform="translate(${q.x} ${q.y})"><path d="M0 0L3 16L7 11L14 10Z" fill="#087e8b" stroke="white"/><rect x="12" y="12" width="${Math.max(40,p.name.length*7+12)}" height="21" rx="4" fill="#087e8b"/><text x="18" y="27" fill="white" font-family="sans-serif" font-size="12">${esc(p.name)}</text></g>`;}).join('');}
-  error(error){this.lastError=error.message;this.app.ui.showToast(`Collaboration: ${error.message}`,true);}
+  clearTransportError(){this.transportError=null;this.lastError=this.documentError||null;}
+  error(error,kind='document'){
+    if(this.disposed)return;const message=error.message||String(error);
+    (this.errorHistory||=[]).push({kind,message,at:Date.now()});if(this.errorHistory.length>32)this.errorHistory.shift();
+    if(kind==='transport')this.transportError=message;else this.documentError=message;
+    this.lastError=this.documentError||this.transportError;this.app.ui.showToast(`Collaboration: ${message}`,true);
+  }
   close(){if(this.disposed)return;this.send({type:'leave'});this.disposed=true;clearInterval(this.heartbeat);this.broadcast?.close();for(const pc of this.connections)pc.close();this.channels.clear();this.assemblies.clear();this.app.store.removeEventListener('change',this.listener);this.app.store.historyApply=this.oldApply;this.app.store.readOnlyReason=this.oldReadOnly;document.getElementById('stage').removeEventListener('pointermove',this.pointer);this.peers.clear();this.app.requestFrame();if(this.app.collaboration===this)this.app.collaboration=null;}
 }
