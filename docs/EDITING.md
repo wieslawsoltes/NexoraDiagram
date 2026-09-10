@@ -10,11 +10,11 @@ Open **Draw**, choose a tool, and drag on the canvas. The tools stay selected fo
 | Rectangle / Ellipse | Drag the bounds. Shift makes a square/circle. |
 | Polyline | Click successive vertices. Enter or double-click finishes. Backspace removes the last draft vertex. Clicking the first point closes a polygon. |
 | Polygon | Click at least three vertices, then Enter, double-click, or click the first vertex. Concave simple polygons are supported; self-intersecting filled boundaries are rejected. |
-| Freehand | Drag with mouse, pen, or touch. Sampled vertices are simplified into an editable polyline. Width is constant; pressure/tilt is not currently interpreted. |
+| Freehand | Drag with mouse, pen, or touch. Sampled vertices are simplified into an editable polyline. Pen pressure controls the vector ribbon; tilt metadata is retained. See Advanced → Pressure ink. |
 | Arc | Drag endpoints to create a quadratic arc. Edit points exposes its single control point. This is a quadratic curve, not an exact circular-arc primitive. |
 | Bézier | Drag endpoints to create a cubic curve. Edit points exposes both controls and endpoints. |
 
-All path geometry is stored as normalized points in a document-space bounding box. A horizontal/vertical line uses a one-unit minimum envelope without changing its endpoint coordinates. Moving, resizing, grouping, saving, copying, undoing, and exporting operate on that geometry. The renderer adaptively subdivides quadratic/cubic paths; the project retains their original controls. SVG currently emits vector polylines at the renderer's subdivision tolerance rather than native Q/C commands.
+All path geometry is stored as normalized points in a document-space bounding box. A horizontal/vertical line uses a one-unit minimum envelope without changing its endpoint coordinates. Moving, resizing, grouping, saving, copying, undoing, and exporting operate on that geometry. The renderer adaptively subdivides quadratic/cubic paths; the project retains their original controls. SVG emits native Q/C commands; three-point circular arcs in Advanced emit A commands. Boolean results remain polygon contours.
 
 Escape cancels a draft or active gesture. Pointer cancellation, lost capture, window blur during a drag, and the start of a two-finger pinch roll back an active edit instead of leaving a partially committed object. A completed pointer gesture is one history command.
 
@@ -52,7 +52,7 @@ Fit drawing fits content in the viewport. Fit page fits the paper, or content in
 
 SVG and PNG export visible content and current graph routes, independent of viewport culling. Fixed/auto mode uses the configured paper rectangle. Infinite mode uses finite drawing bounds. Selection SVG includes selected group descendants and their internal connectors. Styles, rotated labels, and object identities survive SVG export. PNG uses the SVG vector output and caps resolution at 8,192 pixels per axis and approximately 32 megapixels.
 
-Print sends the current page to a browser print frame and fits it to one sheet. Paper choice, margins, printer output, and PDF saving are supplied by the browser. Tiled poster printing, bleed, crop marks, and imposed multi-page print layouts are not implemented.
+Print opens a page-layout dialog with tiled output and fit-to-sheet modes, plus all-document-pages selection. Paper choice, margins, printer output, and PDF saving are supplied by the browser. Advanced → Tiled print adds physical-scale tiling, overlap, registration borders and multi-page print plans. Bleed and full publishing imposition are not implemented.
 
 ## Keyboard
 
@@ -73,3 +73,8 @@ Print sends the current page to a browser print frame and fits it to one sheet. 
 | Zoom | Ctrl/Cmd+wheel; two-finger pinch |
 
 Shortcuts do not intercept text inputs, property fields, or modal dialogs.
+
+
+## Advanced authoring
+
+See [Advanced workflows](ADVANCED.md) for rich text, images, pressure ink, exact arcs, region booleans, native packages, live collaboration and tiled printing.

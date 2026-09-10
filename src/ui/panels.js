@@ -1,3 +1,4 @@
+import { advancedRibbon } from './advanced.js';
 import { drawingRibbon, drawingInspector } from './drawing.js';
 import { icon, esc } from './icons.js';
 import { allMasters, getMaster, shapeGeometry, isContainer, getPorts, SAMPLE_MASTER } from '../core/stencils.js';
@@ -19,7 +20,7 @@ export class Panels {
   button(action, name, label, small = false, active = false, title = label) { return `<button class="tool-button${small ? ' small' : ''}${active ? ' active' : ''}" data-action="${action}" title="${esc(title)}">${icon(name, small ? 16 : 23)}<span>${esc(label)}</span></button>`; }
   group(label, content) { return `<div class="ribbon-group"><div class="ribbon-items">${content}</div><div class="group-label">${label}</div></div>`; }
   renderTabs() {
-    $('ribbon-tabs').innerHTML = ['File', 'Home', 'Insert', 'Draw', 'Design', 'Data', 'Process', 'View'].map(name => `<button data-ribbon-tab="${name}" class="ribbon-tab${this.tab === name ? ' active' : ''}${name === 'File' ? ' file' : ''}" role="tab" aria-selected="${this.tab === name}">${name}</button>`).join('') + `<div class="ribbon-tabs-right"><button class="help-link" data-action="help">${icon('help', 14)} Help & shortcuts</button></div>`;
+    $('ribbon-tabs').innerHTML = ['File', 'Home', 'Insert', 'Draw', 'Advanced', 'Design', 'Data', 'Process', 'View'].map(name => `<button data-ribbon-tab="${name}" class="ribbon-tab${this.tab === name ? ' active' : ''}${name === 'File' ? ' file' : ''}" role="tab" aria-selected="${this.tab === name}">${name}</button>`).join('') + `<div class="ribbon-tabs-right"><button class="help-link" data-action="help">${icon('help', 14)} Help & shortcuts</button></div>`;
   }
   renderRibbon() {
     const a = this.app, b = (...args) => this.button(...args), g = (...args) => this.group(...args);
@@ -29,9 +30,10 @@ export class Panels {
     const check = (key, label, value) => `<label class="ribbon-check"><input type="checkbox" data-setting="${key}" ${value ? 'checked' : ''}>${label}</label>`;
     let html;
     if (this.tab === 'Home') html = g('Clipboard', b('paste', 'paste', 'Paste') + `<div class="ribbon-stack">${b('copy', 'copy', 'Copy', true)}${b('duplicate', 'document', 'Duplicate', true)}</div>`) + tools + g('Quick shapes', b('add-process', 'process', 'Process') + b('add-decision', 'decision', 'Decision')) + arrange + colors + g('Select', b('select-all', 'pointer', 'Select all') + b('page-setup', 'document', 'Page setup'));
+    else if (this.tab === 'Advanced') html = advancedRibbon(a);
     else if (this.tab === 'Draw') html = drawingRibbon(a);
     else if (this.tab === 'File') html = g('Document', b('new-document', 'document', 'New') + b('open-project', 'open', 'Open') + b('save-project', 'save', 'Save project')) + g('Export', b('export-svg', 'export', 'SVG vector') + b('export-png', 'export', 'PNG image') + b('export-selection', 'export', 'Selection SVG') + b('print-page', 'document', 'Print') + b('export-stencils', 'book', 'Stencils JSON')) + g('Examples', b('load-demo', 'layout', 'Approval flow') + b('download-sample-csv', 'data', 'Sample CSV'));
-    else if (this.tab === 'Insert') html = g('Shapes', b('add-process', 'process', 'Process') + b('add-decision', 'decision', 'Decision') + b('add-text', 'text', 'Text')) + g('Structure', b('make-container', 'container', 'Container') + b('add-swimlane', 'lane', 'Swimlane')) + g('Reuse', b('custom-stencil', 'code', 'Programmable shape') + b('save-as-stencil', 'book', 'Save as stencil')) + g('Pages', b('add-page', 'plus', 'New page') + b('duplicate-page', 'copy', 'Duplicate page'));
+    else if (this.tab === 'Insert') html = g('Shapes', b('add-process', 'process', 'Process') + b('add-decision', 'decision', 'Decision') + b('add-text', 'text', 'Text')) + g('Rich content', b('rich-text','text','Rich text') + b('embed-image','open','Embed image')) + g('Structure', b('make-container', 'container', 'Container') + b('add-swimlane', 'lane', 'Swimlane')) + g('Reuse', b('custom-stencil', 'code', 'Programmable shape') + b('save-as-stencil', 'book', 'Save as stencil')) + g('Pages', b('add-page', 'plus', 'New page') + b('duplicate-page', 'copy', 'Duplicate page'));
     else if (this.tab === 'Design') html = arrange + colors + g('Constraints', `<div class="ribbon-stack">${check('maintainConstraints', 'Keep constraints', a.maintainConstraints)}${b('clear-constraints', 'unlock', 'Release constraints', true)}</div>`) + g('Group & transform', b('group', 'container', 'Group') + b('ungroup', 'container', 'Ungroup') + b('rotate-right', 'undo', 'Rotate 90°')) + g('Container', b('fit-containers', 'container', 'Fit to members') + b('bring-front', 'layers', 'Bring to front'));
     else if (this.tab === 'Data') html = g('External data', b('import-csv', 'data', 'Link CSV data') + b('download-sample-csv', 'document', 'Sample CSV')) + g('Properties', b('show-data', 'data', 'Shape data') + b('add-data-field', 'plus', 'Add field') + b('show-layers', 'layers', 'Layers')) + g('Labels', b('bind-label', 'link', 'Bind label') + b('validate', 'validate', 'Check bindings'));
     else if (this.tab === 'Process') html = g('Diagram validation', b('validate', 'validate', 'Check diagram') + b('reroute', 'connector', 'Reroute all')) + g('Structure', b('auto-layout', 'layout', 'Auto layout') + b('make-container', 'container', 'Container') + b('add-swimlane', 'lane', 'Swimlane')) + g('Constraints', b('clear-constraints', 'unlock', 'Release constraints') + b('clear-waypoints', 'connector', 'Reset connector'));
@@ -111,7 +113,7 @@ export class Panels {
   showToast(message, error = false) { clearTimeout(this.toastTimer); $('toast').textContent = message; $('toast').classList.toggle('error', error); $('toast').hidden = false; this.toastTimer = setTimeout(() => $('toast').hidden = true, error ? 7000 : 3500); }
   dialog(title, body, submit, confirm = 'Apply') {
     this.dialogSubmit = submit; $('dialog-title').textContent = title; $('dialog-body').innerHTML = body; $('dialog-footer').innerHTML = `<button type="button" data-action="close-dialog">${submit ? 'Cancel' : 'Close'}</button>${submit ? `<button type="submit" class="primary">${esc(confirm)}</button>` : ''}`;
-    $('dialog').showModal(); setTimeout(() => $('dialog-body').querySelector('input,textarea,select')?.focus(), 20);
+    $('dialog').showModal(); $('dialog-body').querySelector('input,textarea,select')?.focus();
   }
   async submitDialog() { if (!this.dialogSubmit) { $('dialog').close(); return; } try { await this.dialogSubmit(); $('dialog').close(); this.dialogSubmit = null; } catch (error) { this.showToast(error.message, true); } }
   prompt(title, value, submit, label = 'Name') { this.dialog(title, `<label class="field"><span>${esc(label)}</span><input id="prompt-input" type="text" value="${esc(value)}" autocomplete="off"></label>`, () => { const text = $('prompt-input').value.trim(); if (!text) throw new Error('Enter a nonempty value.'); return submit(text); }); }

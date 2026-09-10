@@ -1,7 +1,10 @@
+import { installAdvanced } from './ui/advanced.js';
+import { inkOutline } from './core/curves.js';
 import { installDrawing } from './ui/drawing.js';
 import { geometryBounds } from './core/drawing.js';
 import { selectionBox } from './core/editing.js';
 import { pageBounds, contentBounds, UNIT_SCALE } from './core/page.js';
+import { regionContains } from './core/regions.js';
 import { DocumentStore } from './core/history.js';
 import { createPage, createDocument, addNode, addEdge, uid, isVisible, isLocked, selectionBounds, descendants, assignParent } from './core/model.js';
 import { getMaster, getPorts, shapeGeometry, isContainer } from './core/stencils.js';
@@ -21,7 +24,7 @@ export class DiagramApp {
     this.grid = true; this.snap = true; this.guides = true; this.minimap = false; this.maintainConstraints = true;
     this.camera = { x: 30, y: 30, zoom: .7, width: 1, height: 1, dpr: Math.min(2, window.devicePixelRatio || 1) }; this.pageCameras = new Map();
     this.index = new SpatialIndex(); this.indexRecords = new Map(); this.frame = 0; this.sceneDirty = true; this.drag = null; this.hover = null; this.connectSource = null; this.guideLines = []; this.clipboard = null;
-    this.renderer = new Renderer($('gpu-canvas'), $('fallback-canvas')); this.routing = new RoutingService(); this.ui = new Panels(this); this.saveChain = Promise.resolve(); this.validationIssues = [];
+    this.renderer = new Renderer($('gpu-canvas'), $('fallback-canvas')); this.renderer.onInvalidate = () => this.requestFrame(true); this.routing = new RoutingService(); this.ui = new Panels(this); this.saveChain = Promise.resolve(); this.validationIssues = [];
     this.store.addEventListener('change', e => this.changed(e.detail));
     this.routing.addEventListener('updated', () => { this.syncIndex(); this.requestFrame(true); });
     this.routing.addEventListener('error', e => this.ui.showToast(`Routing: ${e.detail}`, true));
@@ -32,7 +35,7 @@ export class DiagramApp {
   get doc() { return this.store.doc; }
   get page() { return this.doc.pages[this.pageId]; }
   async initialize() {
-    installDrawing(this); this.ui.initialize(); installActions(this); installInteractions(this);
+    installDrawing(this); this.ui.initialize(); installActions(this); installInteractions(this); installAdvanced(this);
     this.resizeObserver = new ResizeObserver(() => this.resize()); this.resizeObserver.observe($('stage'));
     this.syncIndex(); this.routing.update(this.doc, this.page, true); this.resize(); this.fitPage();
     const first = Object.values(this.page.graph.nodes).find(n => n.data.key === 'REQ01'); if (first) this.select([first.id]);
@@ -122,7 +125,8 @@ export class DiagramApp {
       const n = this.page.graph.nodes[hit.id], g = this.page.view.nodes[hit.id];
       if (isContainer(this.doc, n)) continue;
       const shape = shapeGeometry(getMaster(this.doc, n.master), g);
-      if (n.master === 'path' ? (g.closed && g.fill !== 'none' && g.fill !== 'transparent' && pointInPolygon(point, shape.points)) || polylineDistance(point, g.closed ? [...shape.points, shape.points[0]] : shape.points) < Math.max(8 / this.camera.zoom, (g.strokeWidth || 0) / 2 + 3 / this.camera.zoom) : pointInPolygon(point, shape.points)) return hit;
+      if (n.master === 'path' && g.pressures && !g.closed && g.strokeWidth>0 && regionContains(point,[inkOutline(shape.points,g.pressures,g.strokeWidth,g.ink)],'nonzero')) return hit;
+      if (n.master === 'path' ? (g.closed && g.fill !== 'none' && g.fill !== 'transparent' && regionContains(point, shape.contours || [shape.points])) || Math.min(...(shape.contours || [shape.points]).map(r => polylineDistance(point, g.closed ? [...r, r[0]] : r))) < Math.max(8 / this.camera.zoom, (g.strokeWidth || 0) / 2 + 3 / this.camera.zoom) : pointInPolygon(point, shape.points)) return hit;
     }
     for (const hit of edges) if (polylineDistance(point, this.routing.routes.get(hit.id)?.points || []) < 7 / this.camera.zoom) return hit;
     for (const hit of nodes) {
@@ -205,7 +209,7 @@ export class DiagramApp {
       }
       const port = this.findPort(this.connectPoint, true); if (port) circle(port.point, 7, '#e8f6f0', '#76ad97');
     }
-    $('overlay').innerHTML = out.join('') + (this.editor?.overlay() || '');
+    $('overlay').innerHTML = out.join('') + (this.editor?.overlay() || '') + (this.collaboration?.overlay() || '');
   }
   drawRulers() {
     const c = this.camera, dpr = c.dpr; const desired = 100 / c.zoom; let major = 10 ** Math.floor(Math.log10(desired));

@@ -1,4 +1,6 @@
-import { strokeDash } from '../core/drawing.js';
+import { layoutRichText, textFont } from '../core/rich-text.js';
+import { inkOutline } from '../core/curves.js';
+import { strokeDash, pathContours, svgPathData } from '../core/drawing.js';
 import { markerPrimitives } from './stroke.js';
 import { allMasters, getMaster, shapeGeometry, isContainer } from '../core/stencils.js';
 import { isVisible } from '../core/model.js';
@@ -39,7 +41,15 @@ export function labelForNode(doc, n, g) {
 }
 /** One backend-neutral display list powers GPU rendering, Canvas fallback, and SVG export. */
 export function buildScene(doc, page, routes, visibleIds = null) {
-  const primitives = [], texts = [], visible = id => isVisible(page, id) && (!visibleIds || visibleIds.has(id));
+  const primitives = [], texts = [];
+  const appendLabel = (n, g) => {
+    if (!n.richText) { texts.push(labelForNode(doc,n,g)); return; }
+    const box = { x:g.x+8, y:g.y+6, w:Math.max(1,g.w-16), h:Math.max(1,g.h-12) }, ctx=measurer();
+    const layout=layoutRichText(n.richText,box,g.fontSize||16,(text,run)=> { ctx.font=textFont(run,g.fontSize||16); return ctx.measureText(text).width; });
+    const dy=g.textVertical==='bottom'?box.h-layout.height:g.textVertical==='middle'?(box.h-layout.height)/2:0;
+    for (const run of layout.runs) texts.push({ id:n.id, lines:[run.text], x:run.x, y:run.y+dy, w:run.width, h:run.size*1.3, fontSize:run.size, lineHeight:run.size*1.3, weight:run.bold?700:400, italic:!!run.italic, underline:!!run.underline, strike:!!run.strike, font:run.font||'sans-serif', link:run.link, color:run.color||g.textColor||'#334155', align:'left', opacity:g.opacity??1, rotation:g.rotation||0, rotationCenter:{x:g.x+g.w/2,y:g.y+g.h/2} });
+  };
+  const visible = id => isVisible(page, id) && (!visibleIds || visibleIds.has(id));
   const polygon = (points, fill, stroke, width = 1, extra = {}) => primitives.push({ kind: 'polygon', points, fill, stroke, width, ...extra });
   const line = (points, stroke, width = 1, dashed = false, extra = {}) => primitives.push({ kind: 'line', points, stroke, width, dashed, ...extra });
   const nodes = Object.values(page.graph.nodes).filter(n => visible(n.id)).sort((a, b) => (page.view.nodes[a.id].z || 0) - (page.view.nodes[b.id].z || 0));
@@ -50,7 +60,7 @@ export function buildScene(doc, page, routes, visibleIds = null) {
     polygon(boxPoints(g), g.fill, g.stroke, g.strokeWidth ?? 1, { id: n.id, dashArray: strokeDash(g), lineCap: g.lineCap, lineJoin: g.lineJoin, opacity: g.opacity ?? 1 });
     polygon(boxPoints({ x: g.x, y: g.y, w: g.w, h: 38 }), g.headerFill || '#f1f4f9', null, 0, { id: n.id, opacity: g.opacity ?? 1 });
     line([{ x: g.x, y: g.y + 38 }, { x: g.x + g.w, y: g.y + 38 }], g.stroke, .8, false, { id: n.id, opacity: g.opacity ?? 1 });
-    texts.push(labelForNode(doc, n, g));
+    appendLabel(n,g);
   }
   const edgeLabels = [];
   for (const e of Object.values(page.graph.edges)) if (visible(e.id)) {
@@ -64,10 +74,12 @@ export function buildScene(doc, page, routes, visibleIds = null) {
   }
   for (const n of nodes.filter(n => !isContainer(doc, n))) {
     const g = page.view.nodes[n.id], m = getMaster(doc, n.master), geometry = shapeGeometry(m, g);
+    if (n.image) { primitives.push({kind:'image',id:n.id,points:geometry.points,image:n.image,geometry:g,opacity:g.opacity??1}); if(n.label || n.richText) appendLabel(n,g); continue; }
     if (m.geometry.kind === 'path') {
-      primitives.push({ kind: g.closed ? 'polygon' : 'line', points: geometry.points, fill: g.closed ? g.fill : 'none', stroke: g.stroke, width: g.strokeWidth ?? 2, id: n.id, dashArray: strokeDash(g), lineCap: g.lineCap, lineJoin: g.lineJoin, opacity: g.opacity ?? 1 });
+      if (g.pressures && !g.closed) { const outline=inkOutline(geometry.points,g.pressures,g.strokeWidth??2,g.ink||{}); primitives.push({kind:'compound',id:n.id,points:outline,contours:[outline],fill:g.stroke,stroke:null,width:0,opacity:g.opacity??1,fillRule:'nonzero'}); if(n.label || n.richText) appendLabel(n,g); continue; }
+      primitives.push({ kind: g.pathMode === 'compound' ? 'compound' : g.closed ? 'polygon' : 'line', contours: geometry.contours, svgD: svgPathData(g), points: geometry.points, fill: g.closed ? g.fill : 'none', stroke: g.stroke, width: g.strokeWidth ?? 2, id: n.id, dashArray: strokeDash(g), lineCap: g.lineCap, lineJoin: g.lineJoin, opacity: g.opacity ?? 1 });
       if (!g.closed) primitives.push(...markerPrimitives(geometry.points, { ...g, id: n.id }));
-      if (n.label) texts.push(labelForNode(doc, n, g));
+      if (n.label) appendLabel(n,g);
       continue;
     }
     if (m.geometry.kind !== 'text') {
@@ -76,7 +88,7 @@ export function buildScene(doc, page, routes, visibleIds = null) {
       polygon(geometry.points, g.fill, g.stroke, g.strokeWidth ?? 1.5, { id: n.id, dashArray: strokeDash(g), lineCap: g.lineCap, lineJoin: g.lineJoin, opacity: g.opacity ?? 1 });
       for (const detail of geometry.details) line(detail, g.stroke, g.strokeWidth ?? 1.5, false, { id: n.id, opacity: g.opacity ?? 1 });
     }
-    texts.push(labelForNode(doc, n, g));
+    appendLabel(n,g);
   }
   for (const item of edgeLabels) {
     const { p, w, h, fs, layout, color } = item;

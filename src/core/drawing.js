@@ -1,6 +1,8 @@
 /** Editable vector paths and transforms. Pure geometry, independent of the UI and renderer. */
+import { circleThrough, arcSamples } from './curves.js';
+import { validateRings } from './regions.js';
 import { bounds, boxPoints, distance, pointSegmentDistance, clamp, isSimplePolygon } from './geometry.js';
-export const DRAW_TOOLS = ['line', 'arrow', 'rectangle', 'ellipse', 'polyline', 'polygon', 'pencil', 'arc', 'bezier'];
+export const DRAW_TOOLS = ['line', 'arrow', 'rectangle', 'ellipse', 'polyline', 'polygon', 'pencil', 'arc', 'bezier', 'circlearc'];
 export const DRAW_STYLE = { fill: '#dcecff', stroke: '#456a91', strokeWidth: 2, dash: 'solid', lineCap: 'round', lineJoin: 'round', opacity: 1, startArrow: 'none', endArrow: 'none' };
 export const HANDLES = [['nw', 0, 0], ['n', .5, 0], ['ne', 1, 0], ['e', 1, .5], ['se', 1, 1], ['s', .5, 1], ['sw', 0, 1], ['w', 0, .5]];
 export const normalizeAngle = angle => ((angle % 360) + 360) % 360;
@@ -23,15 +25,17 @@ export function handlePoints(g) {
   return HANDLES.map(([name, x, y]) => ({ name, ...rotatePoint({ x: g.x + g.w * x, y: g.y + g.h * y }, center, g.rotation || 0) }));
 }
 export function pathControls(g) {
-  return (g.path || []).map(p => transformPoint({ x: g.x + p.x * g.w, y: g.y + p.y * g.h }, g));
+  return (g.pathMode === 'compound' ? g.contours.flat() : g.path || []).map(p => transformPoint({ x: g.x + p.x * g.w, y: g.y + p.y * g.h }, g));
 }
 export function pathGeometry(points, mode = 'linear', closed = false) {
   if (points.length < 2 || points.length > 4096 || points.some(p => !Number.isFinite(p.x) || !Number.isFinite(p.y))) throw new Error('A path requires 2–4096 finite points.');
-  const b = bounds(points); b.w = Math.max(1, b.w); b.h = Math.max(1, b.h);
+  const arc = mode === 'circular' ? circleThrough(...points) : null;
+  const b = arc ? { x: arc.x - arc.r, y: arc.y - arc.r, w: arc.r * 2, h: arc.r * 2 } : bounds(points); b.w = Math.max(1, b.w); b.h = Math.max(1, b.h);
   return { ...b, path: points.map(p => ({ x: (p.x - b.x) / b.w, y: (p.y - b.y) / b.h })), pathMode: mode, closed, rotation: 0, flipX: false, flipY: false };
 }
 /** Adaptive de Casteljau subdivision; preserves exact control points in the project. */
 export function flattenPath(g, tolerance = .4) {
+  if (g.pathMode === 'circular') { const arc = circleThrough(...g.path); return arcSamples(arc, tolerance, Math.max(g.w, g.h)).map(p => transformPoint({ x: g.x + p.x * g.w, y: g.y + p.y * g.h }, g)); }
   const controls = pathControls(g);
   if (!['quadratic', 'cubic'].includes(g.pathMode)) return controls;
   const output = [controls[0]];
@@ -56,9 +60,14 @@ export function simplifyPath(points, tolerance = .7) {
 }
 export function validatePath(g) {
   if (!Array.isArray(g.path) || g.path.length < 2 || g.path.length > 4096 || g.path.some(p => !p || !Number.isFinite(p.x) || !Number.isFinite(p.y) || p.x < -1e-7 || p.x > 1.0000001 || p.y < -1e-7 || p.y > 1.0000001)) throw new Error('Invalid normalized drawing path.');
-  if (!['linear', 'quadratic', 'cubic'].includes(g.pathMode || 'linear')) throw new Error('Unknown path mode.');
+  if (!['linear', 'quadratic', 'cubic', 'circular', 'compound'].includes(g.pathMode || 'linear')) throw new Error('Unknown path mode.');
   if (g.pathMode === 'quadratic' && g.path.length !== 3 || g.pathMode === 'cubic' && g.path.length !== 4) throw new Error('A curve has an invalid number of control points.');
   if (typeof g.closed !== 'boolean') throw new Error('A drawing path must specify whether it is closed.');
+  if (g.pathMode === 'circular') { if(g.path.length !== 3) throw new Error('An arc requires three controls.'); circleThrough(...g.path); }
+  if (g.pathMode === 'compound') { validateRings(g.contours); if (!g.closed || g.contours.flat().some(p => p.x < 0 || p.x > 1 || p.y < 0 || p.y > 1)) throw new Error('Invalid normalized compound region.'); return; }
+  if(g.ink !== undefined && (!g.ink || !Number.isFinite(g.ink.thinning) || g.ink.thinning<0 || g.ink.thinning>1 || !Number.isFinite(g.ink.gamma) || g.ink.gamma<.1 || g.ink.gamma>4)) throw new Error('Invalid pressure response.');
+  if (g.pressures !== undefined && (!Array.isArray(g.pressures) || g.pressures.length !== g.path.length || g.pressures.some(p => !Number.isFinite(p) || p < 0 || p > 1))) throw new Error('Invalid pressure samples.');
+  if (g.tilts !== undefined && (!Array.isArray(g.tilts) || g.tilts.length !== g.path.length || g.tilts.some(p => !p || ![p.x,p.y].every(v => Number.isFinite(v) && Math.abs(v)<=90)))) throw new Error('Invalid pen tilt samples.');
   if (g.closed && (g.path.length < 3 || !isSimplePolygon(flattenPath(g)))) throw new Error('A filled path must be a non-self-intersecting polygon.');
 }
 export function constrainPoint(start, p, enabled) {
@@ -99,4 +108,20 @@ export function strokeDash(g) {
     case 'dashdot': return [unit * 4, unit * 2, unit, unit * 2];
     default: return [];
   }
+}
+
+/** Normalized compound rings share all ordinary node transforms and persistence. */
+export function compoundGeometry(rings) {
+  validateRings(rings); const b = bounds(rings.flat()); b.w = Math.max(1, b.w); b.h = Math.max(1, b.h);
+  const contours = rings.map(r => r.map(p => ({ x: (p.x - b.x) / b.w, y: (p.y - b.y) / b.h })));
+  return { ...b, path: contours[0], contours, pathMode: 'compound', closed: true, rotation: 0, flipX: false, flipY: false };
+}
+export function pathContours(g) { return g.pathMode === 'compound' ? g.contours.map(r => r.map(p => transformPoint({ x: g.x + p.x * g.w, y: g.y + p.y * g.h }, g))) : [flattenPath(g)]; }
+export function svgPathData(g) {
+  const n = x => +x.toFixed(6), xy = p => `${n(p.x)} ${n(p.y)}`, ps = pathControls(g);
+  if (g.pathMode === 'compound') return pathContours(g).map(r => `M${r.map(xy).join(' L')} Z`).join(' ');
+  if (g.pathMode === 'quadratic') return `M${xy(ps[0])} Q${xy(ps[1])} ${xy(ps[2])}${g.closed ? ' Z' : ''}`;
+  if (g.pathMode === 'cubic') return `M${xy(ps[0])} C${xy(ps[1])} ${xy(ps[2])} ${xy(ps[3])}${g.closed ? ' Z' : ''}`;
+  if (g.pathMode === 'circular') { const arc = circleThrough(...g.path), reverse = Boolean(g.flipX) !== Boolean(g.flipY); return `M${xy(ps[0])} A${n(arc.r*g.w)} ${n(arc.r*g.h)} ${n(g.rotation||0)} ${Math.abs(arc.sweep)>Math.PI?1:0} ${(arc.sweep>0)!==reverse?1:0} ${xy(ps[2])}${g.closed ? ' Z' : ''}`; }
+  return `M${ps.map(xy).join(' L')}${g.closed ? ' Z' : ''}`;
 }

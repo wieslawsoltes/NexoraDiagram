@@ -29,7 +29,7 @@ let bundle = `(()=>{globalThis.__NEXORA_ROUTER_WORKER_URL__=URL.createObjectURL(
 bundle = bundle.replace(/<\/script/gi, '<\\/script');
 const css = await readFile(join(root, 'style.css'), 'utf8'), favicon = await readFile(join(root, 'favicon.svg'), 'utf8');
 let html = await readFile(join(root, 'index.html'), 'utf8');
-html = html.replace('<link rel="stylesheet" href="./style.css">', `<style>${css}</style>`).replace('href="./favicon.svg"', `href="data:image/svg+xml,${encodeURIComponent(favicon)}"`).replace('<script type="module" src="./src/main.js"></script>', `<script>${bundle}</script>`);
+html = html.replace('<link rel="stylesheet" href="./style.css">', () => `<style>${css}</style>`).replace('href="./favicon.svg"', `href="data:image/svg+xml,${encodeURIComponent(favicon)}"`).replace('<script type="module" src="./src/main.js"></script>', () => `<script>${bundle}</script>`);
 await mkdir(join(root, 'dist'), { recursive: true });
 await writeFile(join(root, 'dist', 'Nexora-Diagram.html'), html);
 console.log(`Built dist/Nexora-Diagram.html (${(Buffer.byteLength(html) / 1024).toFixed(1)} KiB).`);

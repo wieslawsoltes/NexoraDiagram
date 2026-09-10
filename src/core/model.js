@@ -1,4 +1,6 @@
 import { getMaster, getPorts, isContainer, validateMaster, validateStyle, validatePorts, BUILTINS, shapeGeometry } from './stencils.js';
+import { validateRichText } from './rich-text.js';
+import { validateImage } from './assets.js';
 import { validatePath, geometryBounds } from './drawing.js';
 import { validatePageSettings } from './page.js';
 import { contains, union, round, isSimplePolygon } from './geometry.js';
@@ -116,6 +118,8 @@ export function assertDocument(doc) {
       if (!p.layers.some(l => l.id === n.layerId)) throw new Error(`Missing layer for ${id}.`);
       if (!['x', 'y', 'w', 'h'].every(k => Number.isFinite(g[k]) && Math.abs(g[k]) <= 1e6) || g.w < (['path', 'group', 'rectangle', 'ellipse'].includes(n.master) ? 1 : 24) || g.h < (['path', 'group', 'rectangle', 'ellipse'].includes(n.master) ? 1 : 24)) throw new Error(`Invalid geometry for ${id}.`);
       validateStyle(g);
+      if (n.richText) validateRichText(n.richText);
+      if (n.image) { validateImage(n.image); if (n.master !== 'image') throw new Error('Embedded images require an image shape.'); }
       if (n.locked !== undefined && typeof n.locked !== 'boolean') throw new Error('Invalid object lock.');
       if (n.master === 'path') validatePath(g);
       if (n.ports) validatePorts(n.ports, g);

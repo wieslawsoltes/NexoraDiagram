@@ -1,4 +1,4 @@
-import { flattenPath, transformPoint, rotatePoint } from './drawing.js';
+import { pathContours, flattenPath, transformPoint, rotatePoint } from './drawing.js';
 import { evaluate } from './expression.js';
 import { roundedRect, boxPoints, isSimplePolygon, distance } from './geometry.js';
 const ports = [
@@ -7,6 +7,7 @@ const ports = [
 ];
 const def = (id, name, category, kind, size, style = {}, extra = {}) => ({ id, name, category, geometry: { kind }, size, ports, style: { fill: '#f0f7ff', stroke: '#7b9cbe', textColor: '#253b53', fontSize: 16, strokeWidth: 1.5, ...style }, ...extra });
 export const BUILTINS = Object.fromEntries([
+  def('image', 'Embedded image', 'Media', 'rect', [240,160], { fill:'none', stroke:'none' }, { hidden:true }),
   def('path', 'Drawing path', 'Drawing', 'path', [160, 90], { fill: 'none' }, { annotation: true, hidden: true, ports: [] }),
   def('group', 'Group', 'Structure', 'group', [160, 90], { fill: 'none', stroke: 'none' }, { container: true, hidden: true, ports: [] }),
   def('process', 'Process', 'Basic flowchart', 'roundrect', [170, 76]),
@@ -30,7 +31,7 @@ export const allMasters = doc => ({ ...BUILTINS, ...doc.stencils });
 export const getMaster = (doc, id) => doc.stencils?.[id] || BUILTINS[id] || BUILTINS.process;
 export const isContainer = (doc, node) => Boolean(getMaster(doc, node.master).container);
 export function shapeGeometry(master, g) {
-  if (master.geometry.kind === 'path') return { points: flattenPath(g), details: [], closed: Boolean(g.closed) };
+  if (master.geometry.kind === 'path') return { points: g.pathMode === 'compound' ? pathContours(g).flat() : flattenPath(g), contours: pathContours(g), details: [], closed: Boolean(g.closed) };
   const { x, y, w, h } = g, kind = master.geometry.kind; let points; const details = [];
   const local = p => p.map(([a, b]) => ({ x: x + a, y: y + b }));
   switch (kind) {
