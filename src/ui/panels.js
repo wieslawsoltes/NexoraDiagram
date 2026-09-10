@@ -113,7 +113,7 @@ export class Panels {
   showToast(message, error = false) { clearTimeout(this.toastTimer); $('toast').textContent = message; $('toast').classList.toggle('error', error); $('toast').hidden = false; this.toastTimer = setTimeout(() => $('toast').hidden = true, error ? 7000 : 3500); }
   dialog(title, body, submit, confirm = 'Apply') {
     this.dialogSubmit = submit; $('dialog-title').textContent = title; $('dialog-body').innerHTML = body; $('dialog-footer').innerHTML = `<button type="button" data-action="close-dialog">${submit ? 'Cancel' : 'Close'}</button>${submit ? `<button type="submit" class="primary">${esc(confirm)}</button>` : ''}`;
-    $('dialog').showModal(); setTimeout(() => $('dialog-body').querySelector('input,textarea,select')?.focus(), 20);
+    $('dialog').showModal(); $('dialog-body').querySelector('input,textarea,select')?.focus();
   }
   async submitDialog() { if (!this.dialogSubmit) { $('dialog').close(); return; } try { await this.dialogSubmit(); $('dialog').close(); this.dialogSubmit = null; } catch (error) { this.showToast(error.message, true); } }
   prompt(title, value, submit, label = 'Name') { this.dialog(title, `<label class="field"><span>${esc(label)}</span><input id="prompt-input" type="text" value="${esc(value)}" autocomplete="off"></label>`, () => { const text = $('prompt-input').value.trim(); if (!text) throw new Error('Enter a nonempty value.'); return submit(text); }); }
