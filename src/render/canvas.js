@@ -1,3 +1,4 @@
+import { cachedImage, imagePlacement } from '../core/assets.js';
 import { pageBounds } from '../core/page.js';
 import { FONT } from './scene.js';
 export class CanvasRenderer {
@@ -22,7 +23,10 @@ export class CanvasRenderer {
     }
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';
     for (const p of this.scene.primitives) {
-      if (!p.points.length) continue; ctx.globalAlpha = p.opacity ?? 1; ctx.lineCap = p.lineCap || 'round'; ctx.lineJoin = p.lineJoin || 'round'; ctx.beginPath(); ctx.moveTo(p.points[0].x, p.points[0].y); for (const point of p.points.slice(1)) ctx.lineTo(point.x, point.y);
+      if (!p.points.length) continue;
+      if (p.kind==='image') { const item=cachedImage(p.image,()=>this.onInvalidate?.()),g=p.geometry; ctx.save(); ctx.globalAlpha=p.opacity??1; const cx=g.x+g.w/2,cy=g.y+g.h/2;ctx.translate(cx,cy);ctx.rotate((g.rotation||0)*Math.PI/180);ctx.scale(g.flipX?-1:1,g.flipY?-1:1);ctx.translate(-cx,-cy); const d=imagePlacement(p.image,g); if(item.ready) ctx.drawImage(item.element,d.sx,d.sy,d.sw,d.sh,d.x,d.y,d.w,d.h); else {ctx.fillStyle='#e1e6ed';ctx.fillRect(g.x,g.y,g.w,g.h);} ctx.restore();continue; }
+      ctx.globalAlpha = p.opacity ?? 1; ctx.lineCap = p.lineCap || 'round'; ctx.lineJoin = p.lineJoin || 'round'; ctx.beginPath(); ctx.moveTo(p.points[0].x, p.points[0].y); for (const point of p.points.slice(1)) ctx.lineTo(point.x, point.y);
+      if (p.kind === 'compound') { ctx.beginPath(); for(const ring of p.contours) { if(!ring.length) continue;ctx.moveTo(ring[0].x,ring[0].y); for(const point of ring.slice(1))ctx.lineTo(point.x,point.y);ctx.closePath();} if(p.fill && !['none','transparent'].includes(p.fill)){ctx.fillStyle=p.fill;ctx.fill(p.fillRule||'evenodd');} }
       if (p.kind === 'polygon') { ctx.closePath(); if (p.fill && !['transparent', 'none'].includes(p.fill)) { ctx.fillStyle = p.fill; ctx.fill(); } }
       if (p.width !== 0 && p.stroke && !['transparent', 'none'].includes(p.stroke)) { ctx.strokeStyle = p.stroke; ctx.lineWidth = p.width ?? 1; ctx.setLineDash(p.dashArray || (p.dashed ? [6, 5] : [])); ctx.stroke(); }
     }
@@ -30,9 +34,9 @@ export class CanvasRenderer {
     for (const label of this.scene.texts) {
       ctx.save(); ctx.globalAlpha = label.opacity ?? 1;
       if (label.rotation) { const c = label.rotationCenter; ctx.translate(c.x, c.y); ctx.rotate(label.rotation * Math.PI / 180); ctx.translate(-c.x, -c.y); }
-      ctx.font = `${label.weight} ${label.fontSize}px ${FONT}`; ctx.textAlign = label.align; ctx.fillStyle = label.color;
+      ctx.font = `${label.italic?'italic ':''}${label.weight} ${label.fontSize}px ${label.font||FONT}`; ctx.textAlign = label.align; ctx.fillStyle = label.color;
       const x = label.x + (label.align === 'center' ? label.w / 2 : label.align === 'right' ? label.w : 0);
-      label.lines.forEach((line, i) => ctx.fillText(line, x, label.y + i * label.lineHeight)); ctx.restore();
+      label.lines.forEach((line, i) => { const y=label.y+i*label.lineHeight;ctx.fillText(line,x,y); const w=ctx.measureText(line).width, start=x-(label.align==='center'?w/2:label.align==='right'?w:0); for(const position of [label.underline ? .98 : 0,label.strike ? .5 : 0].filter(Boolean)){ctx.fillRect(start,y+label.fontSize*position,w,Math.max(1,label.fontSize/14));} }); ctx.restore();
     }
     this.lastStats = { primitives: this.scene.primitives.length, labels: this.scene.texts.length };
   }

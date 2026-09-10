@@ -21,7 +21,7 @@ export class Renderer extends EventTarget {
     if (this.scene) this.backend.setScene(this.scene, this.camera); old.dispose(); this.dispatchEvent(new Event('backend'));
   }
   setScene(scene, camera) {
-    this.scene = scene; this.camera = camera;
+    this.scene = scene; this.camera = camera; this.backend.onInvalidate = () => this.onInvalidate?.();
     try { this.backend.setScene(scene, camera); } catch (error) { if (this.mode === 'WebGPU') this.fallback(error.message); else throw error; }
   }
   draw(camera, page, grid) {

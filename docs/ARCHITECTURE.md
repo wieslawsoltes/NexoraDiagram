@@ -208,3 +208,12 @@ The browser fixture injected persistence and did not have access to WebGPU. Thes
 `render/stroke.js` shares dash splitting and endpoint-marker construction and expands GPU strokes into triangles with cap/join geometry. `render/scene.js` produces backend-neutral paths and rotated text for both renderers and vector export. Curves retain controls in the model and are flattened for drawing/export. Rotated node bounds participate in culling and obstacle invalidation; port positions and cardinal escape directions rotate with shapes. Grouping is semantic, not a texture bake.
 
 SVG export now accepts content/selection options and computes finite bounds for infinite drawings, including negative origins and markers. PNG rasterization uses the exported SVG and explicit dimension/area caps. Printing uses a dedicated ephemeral same-origin frame and the browser print dialog. There is no claim of backend pixel identity, rich-text round-trip, or native third-party format compatibility; see the capability matrix.
+
+
+## Advanced authoring modules (1.2)
+
+`curves.js` retains analytic arc controls and constructs pressure outlines. `regions.js` implements planar region operations and winding-aware nonoverlapping triangulation. `rich-text.js` validates and lays out structured text; `assets.js` manages bounded embedded rasters. The shared scene carries rich glyph runs, compound regions and image primitives into both renderers and SVG/PNG/print. WebGPU image commands retain geometry-relative draw order.
+
+`archive.js` and `xml.js` are independent bounded parsers; `native-diagram.js` maps supported OPC/legacy XML records with explicit reports. `print.js` separates physical tile planning from output rendering. `collaboration.js` (core) is a Lamport field-register CRDT with tombstones, atomic correlated geometry records and deterministic dependency repair; its UI transport supports BroadcastChannel and framed/backpressured WebRTC messages. `history.js` offers a collaboration-aware patch ownership hook without turning remote operations into local undo commands.
+
+See ADVANCED.md for non-goals, security boundaries and test distinctions.

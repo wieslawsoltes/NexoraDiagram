@@ -129,7 +129,7 @@ export function installInteractions(a) {
     stage.append(editor); editor.focus(); editor.select(); let finished = false;
     a.finishLabelEdit = (save = true) => {
       if (finished) return; finished = true; const value = editor.value.slice(0, 10000); editor.remove(); a.finishLabelEdit = null;
-      if (save && value !== node.label) a.transact('Edit shape label', () => { a.page.graph.nodes[id].label = value; });
+      if (save && value !== node.label) a.transact('Edit shape label', () => { a.page.graph.nodes[id].label = value; delete a.page.graph.nodes[id].richText; });
     };
     editor.addEventListener('blur', () => a.finishLabelEdit?.());
     editor.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Escape') { e.preventDefault(); a.finishLabelEdit?.(false); stage.focus(); } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); a.finishLabelEdit?.(); stage.focus(); } });

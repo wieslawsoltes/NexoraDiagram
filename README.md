@@ -1,5 +1,10 @@
 # Nexora Diagram
 
+## Advanced authoring — 1.2
+
+The **Advanced** ribbon adds rich text, embedded/cropped raster images, pressure-sensitive ink, exact three-point circular arcs, editable region boolean operations, native drawing packages, live peer editing and tiled printing. Read [advanced workflows and interoperability scope](docs/ADVANCED.md) and the [capability matrix](docs/CAPABILITIES.md). These are validated document features connected to history, persistence, renderers and exports.
+
+
 An original, dependency-free structured-diagram editor with a professional ribbon workspace, a semantic diagram model, real editing tools, obstacle-aware orthogonal routing, and a retained WebGPU rendering backend.
 
 **The diagram is not an SVG mockup or screenshot.** Shapes, ports, connectors, labels, layers, containers, page graphs, and property panels are editable document objects. The startup purchase-approval example is built through the same model API used by the editor.
@@ -73,7 +78,7 @@ The app attempts WebGPU, then explicitly falls back to Canvas 2D if the API, ada
 
 WebGPU access requires a supporting browser and a secure context. Localhost is the intended local-development origin; use HTTPS for a remote deployment. The fallback can also be selected explicitly with `?renderer=canvas`.
 
-The GPU backend uses three WGSL pipelines: procedural page/grid, filled and stroked geometry, and atlas-backed text. It uses four-sample antialiasing, retained growable vertex buffers, resolution-bucketed text atlases, viewport culling, and invalidation-driven frame submission. It does not continuously redraw a static page.
+The GPU backend uses WGSL pipelines for procedural page/grid, filled and stroked geometry, atlas-backed text, and embedded raster images. It uses four-sample antialiasing, retained growable vertex buffers, resolution-bucketed text atlases, viewport culling, and invalidation-driven frame submission. It does not continuously redraw a static page.
 
 **Verification boundary:** this delivery was browser-tested using Canvas 2D and a real routing Worker in an in-memory fixture. Actual WebGPU execution and IndexedDB reload persistence were not available in that restricted browser fixture. A dedicated hardware test is included at `/tests/webgpu-smoke.html`; open it on your target machine. It compiles the actual shaders, submits the real demo, waits for GPU completion, and reports validation errors without silently falling back. No hardware throughput or FPS claim is made.
 
@@ -192,7 +197,7 @@ It exercises the self-contained build with `page.set_content`, a real Blob Worke
 
 ## Explicit scope
 
-Nexora is an independent diagram editor. Implemented behavior and remaining boundaries are recorded in [the capability matrix](docs/CAPABILITIES.md). This release does not claim universal feature or file-format compatibility with another application. Proprietary native diagram formats and macro runtimes, a rich-text document editor, embedded image objects, cross-page connector identities, multi-user collaboration, and a server document service are not implemented. Supported delivery formats are Nexora JSON, SVG, PNG, and browser print (including a browser-provided PDF destination).
+Nexora is an independent diagram editor. Implemented behavior and remaining boundaries are recorded in [the capability matrix](docs/CAPABILITIES.md). This release does not claim universal feature or file-format compatibility with another application. Supported native XML/package translators, structured rich text, embedded rasters, peer collaboration and tiled printing are described in the advanced guide. Legacy binary translators, a general macro/formula runtime, cross-page connector identities and a hosted server document service are not implemented. Delivery formats include Nexora JSON, SVG, PNG, VSDX packages and browser print (including a browser-provided PDF destination).
 
 Routing is clearance-aware against axis-aligned shape bounds, not exact curved silhouettes. It does not globally optimize connector crossings, bundle edges, or add line jumps. A bounded search can return a visibly flagged blocked route; user waypoints guide routing, not guaranteed feasibility. Containers are not obstacles. The layout solver is a bounded projection solver for alignment and distribution, not a general symbolic equation solver or mixed-integer optimizer. Heavy graph edits still require CPU work, a transaction snapshot, validation, and scene reconstruction for visible content.
 

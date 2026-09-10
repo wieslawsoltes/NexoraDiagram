@@ -22,7 +22,7 @@ export class DocumentStore extends EventTarget {
     super(); this.doc = assertDocument(doc); this.undoStack = []; this.redoStack = []; this.maxBytes = maxBytes; this.maxCommands = maxCommands; this.bytes = 0; this.revision = 0; this.pending = null;
   }
   notify(kind, label = '') { this.dispatchEvent(new CustomEvent('change', { detail: { kind, label, revision: this.revision } })); }
-  begin(label) { if (this.pending) throw new Error('Nested transactions are not supported.'); this.pending = { label, before: structuredClone(this.doc) }; }
+  begin(label) { if(this.readOnlyReason)throw new Error(this.readOnlyReason); if (this.pending) throw new Error('Nested transactions are not supported.'); this.pending = { label, before: structuredClone(this.doc) }; }
   preview() { this.notify('preview', this.pending?.label); }
   commit() {
     if (!this.pending) return false; const transaction = this.pending;
@@ -36,7 +36,7 @@ export class DocumentStore extends EventTarget {
   }
   cancel() { if (!this.pending) return; this.doc = this.pending.before; this.pending = null; this.notify('rollback'); }
   transact(label, mutate) { this.begin(label); try { mutate(this.doc); return this.commit(); } catch (e) { this.cancel(); throw e; } }
-  undo() { if (this.pending) this.cancel(); const c = this.undoStack.pop(); if (!c) return; applyPatches(this.doc, c.patches, false); this.redoStack.push(c); this.bytes -= c.bytes; this.revision++; this.notify('undo', c.label); }
-  redo() { if (this.pending) this.cancel(); const c = this.redoStack.pop(); if (!c) return; applyPatches(this.doc, c.patches); this.undoStack.push(c); this.bytes += c.bytes; this.revision++; this.notify('redo', c.label); }
+  undo() { if (this.pending) this.cancel(); const c = this.undoStack.pop(); if (!c) return; if (this.historyApply) c.patches = this.historyApply(c, false); else applyPatches(this.doc, c.patches, false); this.redoStack.push(c); this.bytes -= c.bytes; this.revision++; this.notify('undo', c.label); }
+  redo() { if (this.pending) this.cancel(); const c = this.redoStack.pop(); if (!c) return; if (this.historyApply) c.patches = this.historyApply(c, true); else applyPatches(this.doc, c.patches); this.undoStack.push(c); this.bytes += c.bytes; this.revision++; this.notify('redo', c.label); }
   replace(doc) { assertDocument(doc); this.doc = doc; this.pending = null; this.undoStack = []; this.redoStack = []; this.bytes = 0; this.revision++; this.notify('load'); }
 }

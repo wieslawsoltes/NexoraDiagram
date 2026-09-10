@@ -1,4 +1,5 @@
 /** Shared dash splitting and marker construction; GPU strokes are actual triangle geometry. */
+import { triangulateRegion } from '../core/regions.js';
 import { distance, parseColor, triangulate } from '../core/geometry.js';
 export function dashRuns(points, pattern = []) {
   if (!pattern.length) return [points];
@@ -67,6 +68,12 @@ export function tessellateScene(scene) {
     if (cap === 'round' && !closed) { disc(ps[0], half, c); disc(ps.at(-1), half, c); }
   }
   for (const p of scene.primitives) {
+    if(p.kind==='image') continue;
+    if(p.kind==='compound') {
+      if(p.fill && !['none','transparent'].includes(p.fill)) { const c=color(p.fill,p.opacity); for(const point of triangulateRegion(p.contours,p.fillRule||'evenodd'))vertex(point,c); }
+      if(p.stroke && !['none','transparent'].includes(p.stroke) && p.width!==0) {const c=color(p.stroke,p.opacity);for(const ring of p.contours) for(const run of dashRuns([...ring,ring[0]],p.dashArray||[]))strokeRun(run,p.width??1,c,p.lineCap||'round',p.lineJoin||'round',!p.dashArray?.length); }
+      continue;
+    }
     if (p.kind === 'polygon' && p.fill && !['transparent', 'none'].includes(p.fill) && p.points.length >= 3) {
       const c = color(p.fill, p.opacity); for (const i of triangulate(p.points)) vertex(p.points[i], c);
     }

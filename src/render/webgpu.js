@@ -1,5 +1,6 @@
 import { tessellateScene } from './stroke.js';
-import { rotatePoint } from '../core/drawing.js';
+import { cachedImage, imagePlacement } from '../core/assets.js';
+import { transformPoint, rotatePoint } from '../core/drawing.js';
 import { parseColor, triangulate, distance } from '../core/geometry.js';
 import { FONT } from './scene.js';
 const SHARED = `
@@ -65,10 +66,10 @@ class TextAtlas {
     this.pages.push(page); return page;
   }
   get(label) {
-    const font = `${label.weight} ${label.fontSize}px ${FONT}`; this.measure.font = font;
+    const font = `${label.italic?'italic ':''}${label.weight} ${label.fontSize}px ${label.font||FONT}`; this.measure.font = font;
     const width = Math.max(1, ...label.lines.map(s => this.measure.measureText(s).width));
     const height = label.lines.length * label.lineHeight;
-    const key = JSON.stringify([label.lines, label.fontSize, label.weight, label.align, label.lineHeight]);
+    const key = JSON.stringify([label.lines, label.fontSize, label.weight, label.align, label.lineHeight,label.italic,label.font,label.underline,label.strike]);
     if (this.entries.has(key)) return this.entries.get(key);
     const scale = Math.min(this.bucket, (this.size - 12) / width, (this.size - 12) / height), pad = 3;
     const w = Math.ceil(width * scale) + pad * 2, h = Math.ceil(height * scale) + pad * 2;
@@ -77,7 +78,7 @@ class TextAtlas {
     if (page.y + h + 2 > this.size) page = this.newPage();
     const { ctx } = page; ctx.save(); ctx.translate(page.x + pad, page.y + pad); ctx.scale(scale, scale); ctx.font = font; ctx.fillStyle = '#ffffff'; ctx.textBaseline = 'top'; ctx.textAlign = label.align;
     const dx = label.align === 'center' ? width / 2 : label.align === 'right' ? width : 0;
-    label.lines.forEach((line, i) => ctx.fillText(line, dx, i * label.lineHeight)); ctx.restore();
+    label.lines.forEach((line,i)=>{const y=i*label.lineHeight;ctx.fillText(line,dx,y);const lw=ctx.measureText(line).width,start=dx-(label.align==='center'?lw/2:label.align==='right'?lw:0);for(const position of [label.underline ? .98 : 0,label.strike ? .5 : 0].filter(Boolean))ctx.fillRect(start,y+label.fontSize*position,lw,Math.max(1,label.fontSize/14));}); ctx.restore();
     const entry = { page: this.pages.length - 1, x: page.x, y: page.y, w, h, width, height, scale, pad };
     page.x += w + 2; page.rowHeight = Math.max(page.rowHeight, h); page.dirty = true; this.entries.set(key, entry); return entry;
   }
@@ -92,7 +93,7 @@ export class WebGPURenderer {
     try { const renderer = new WebGPURenderer(canvas, device); await renderer.initialize(); return renderer; }
     catch (error) { device.destroy(); throw error; }
   }
-  constructor(canvas, device) { this.canvas = canvas; this.device = device; this.context = canvas.getContext('webgpu'); this.format = navigator.gpu.getPreferredCanvasFormat(); this.textBuffers = []; this.sizeKey = ''; this.bucket = 0; this.scene = null; this.lastStats = {}; }
+  constructor(canvas, device) { this.canvas = canvas; this.device = device; this.context = canvas.getContext('webgpu'); this.format = navigator.gpu.getPreferredCanvasFormat(); this.textBuffers = []; this.imageTextures = new Map(); this.imageBuffers=[]; this.commands=[]; this.sizeKey = ''; this.bucket = 0; this.scene = null; this.lastStats = {}; }
   async initialize() {
     const d = this.device; this.context.configure({ device: d, format: this.format, alphaMode: 'opaque' });
     this.uniform = d.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
@@ -106,10 +107,32 @@ export class WebGPURenderer {
     this.backgroundPipeline = await make(BACKGROUND_SHADER, [], [this.cameraLayout], false);
     this.geometryPipeline = await make(GEOMETRY_SHADER, [{ arrayStride: 24, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x2' }, { shaderLocation: 1, offset: 8, format: 'float32x4' }] }], [this.cameraLayout], true);
     this.textPipeline = await make(TEXT_SHADER, [{ arrayStride: 32, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x2' }, { shaderLocation: 1, offset: 8, format: 'float32x2' }, { shaderLocation: 2, offset: 16, format: 'float32x4' }] }], [this.cameraLayout, textureLayout], true);
+    this.textureLayout=textureLayout; this.imageSampler=d.createSampler({magFilter:'linear',minFilter:'linear'});
+    this.imagePipeline=await make(TEXT_SHADER.replace('let a = textureSample(glyphs, glyphSampler, input.uv).a; return vec4f(input.color.rgb, input.color.a * a);','let c = textureSample(glyphs, glyphSampler, input.uv); return vec4f(c.rgb * input.color.rgb, c.a * input.color.a);'),[{arrayStride:32,attributes:[{shaderLocation:0,offset:0,format:'float32x2'},{shaderLocation:1,offset:8,format:'float32x2'},{shaderLocation:2,offset:16,format:'float32x4'}]}],[this.cameraLayout,textureLayout],true);
     this.geometry = new GrowBuffer(d, GPUBufferUsage.VERTEX);
     this.atlas = new TextAtlas(d, textureLayout, d.createSampler({ magFilter: 'linear', minFilter: 'linear' }));
   }
-  setScene(scene, camera) { this.scene = scene; this.geometry.upload(tessellateScene(scene), 6); this.rebuildText(camera); }
+  setScene(scene,camera) {
+    this.scene=scene;this.commands=[]; const chunks=[];let offset=0,index=0;
+    const live=new Set(scene.primitives.filter(p=>p.kind==='image').map(p=>p.image.data));
+    for(const [key,t] of this.imageTextures) if(!live.has(key)){t.texture.destroy();this.imageTextures.delete(key);}
+    for(const p of scene.primitives) {
+      if(p.kind!=='image') {const vertices=tessellateScene({primitives:[p]}),count=vertices.length/6;chunks.push(vertices); if(count){const last=this.commands.at(-1);if(last?.kind==='geometry')last.count+=count;else this.commands.push({kind:'geometry',offset,count});offset+=count;}continue;}
+      const item=cachedImage(p.image,()=>this.onInvalidate?.()); if(!item.ready) continue;
+      let t=this.imageTextures.get(p.image.data);
+      if(!t) {
+        const bytes=p.image.width*p.image.height*4;
+        if([...this.imageTextures.values()].reduce((sum,t)=>sum+t.bytes,bytes)>128*1024*1024)throw new Error('Visible image textures exceed 128 MB.');
+        const texture=this.device.createTexture({size:[p.image.width,p.image.height],format:'rgba8unorm',usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST|GPUTextureUsage.RENDER_ATTACHMENT});
+        this.device.queue.copyExternalImageToTexture({source:item.element},{texture,premultipliedAlpha:false},[p.image.width,p.image.height]);
+        t={texture,bytes,group:this.device.createBindGroup({layout:this.textureLayout,entries:[{binding:0,resource:texture.createView()},{binding:1,resource:this.imageSampler}]})}; this.imageTextures.set(p.image.data,t);
+      }
+      const placement=imagePlacement(p.image,p.geometry),vertices=[];
+      for(const [dx,dy] of [[0,0],[1,0],[1,1],[0,0],[1,1],[0,1]]){const point=transformPoint({x:placement.x+dx*placement.w,y:placement.y+dy*placement.h},p.geometry);vertices.push(point.x,point.y,(placement.sx+dx*placement.sw)/p.image.width,(placement.sy+dy*placement.sh)/p.image.height,1,1,1,p.opacity??1);}
+      const buffer=this.imageBuffers[index] ||= new GrowBuffer(this.device,GPUBufferUsage.VERTEX);buffer.upload(new Float32Array(vertices),8);index++;this.commands.push({kind:'image',buffer,group:t.group});
+    }
+    const data=new Float32Array(offset*6);let at=0;for(const chunk of chunks){data.set(chunk,at);at+=chunk.length;}this.geometry.upload(data,6);this.rebuildText(camera);
+  }
   rebuildText(camera) {
     if (!this.scene) return;
     const bucket = Math.min(4, Math.max(1, 2 ** (Math.ceil(Math.log2(camera.zoom * camera.dpr) * 2) / 2)));
@@ -138,12 +161,11 @@ export class WebGPURenderer {
     d.queue.writeBuffer(this.uniform, 0, new Float32Array([camera.width, camera.height, camera.x, camera.y, camera.zoom, camera.dpr, page.width, page.height, grid ? (page.gridSize || 10) * Math.max(1, Math.ceil(12 / (page.gridSize || 10) / camera.zoom)) : 0, page.canvasMode === 'infinite' ? 1 : 0, page.originX || 0, page.originY || 0]));
     const encoder = d.createCommandEncoder(); const pass = encoder.beginRenderPass({ colorAttachments: [{ view: this.msaa.createView(), resolveTarget: this.context.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'discard', clearValue: { r: .94, g: .95, b: .96, a: 1 } }] });
     pass.setBindGroup(0, this.cameraGroup); pass.setPipeline(this.backgroundPipeline); pass.draw(3);
-    if (this.geometry.count) { pass.setPipeline(this.geometryPipeline); pass.setVertexBuffer(0, this.geometry.buffer); pass.draw(this.geometry.count); }
+    let draws=1;for(const command of this.commands){if(command.kind==='geometry'){pass.setPipeline(this.geometryPipeline);pass.setVertexBuffer(0,this.geometry.buffer);pass.draw(command.count,1,command.offset);}else{pass.setPipeline(this.imagePipeline);pass.setBindGroup(1,command.group);pass.setVertexBuffer(0,command.buffer.buffer);pass.draw(command.buffer.count);}draws++;}
     pass.setPipeline(this.textPipeline);
-    let draws = 2;
     this.textBuffers.forEach((buffer, i) => { if (!buffer.count) return; pass.setBindGroup(1, this.atlas.pages[i].bindGroup); pass.setVertexBuffer(0, buffer.buffer); pass.draw(buffer.count); draws++; });
     pass.end(); d.queue.submit([encoder.finish()]);
     this.lastStats = { vertices: this.geometry.count, atlasPages: this.atlas.pages.length, drawCalls: draws, atlasEntries: this.atlas.entries.size };
   }
-  dispose() { this.msaa?.destroy(); this.uniform?.destroy(); this.geometry?.dispose(); this.atlas?.dispose(); this.textBuffers.forEach(b => b.dispose()); this.device.destroy(); }
+  dispose() { this.msaa?.destroy(); this.uniform?.destroy(); this.geometry?.dispose(); this.atlas?.dispose(); this.textBuffers.forEach(b => b.dispose());this.imageBuffers.forEach(b=>b.dispose());for(const t of this.imageTextures.values())t.texture.destroy(); this.device.destroy(); }
 }
