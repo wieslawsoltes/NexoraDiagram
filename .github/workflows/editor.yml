@@ -2,7 +2,7 @@ name: Editor regression tests
 
 on:
   push:
-    branches: [main, 'feat/drawing-canvas-selection']
+    branches: [main, 'feat/**']
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -39,7 +39,7 @@ jobs:
       - name: Install isolated browser test environment
         run: |
           python3 -m venv /tmp/nexora-browser-env
-          /tmp/nexora-browser-env/bin/pip install playwright==1.57.0
+          /tmp/nexora-browser-env/bin/pip install playwright==1.57.0 pillow==11.3.0
           /tmp/nexora-browser-env/bin/python -m playwright install --with-deps chromium
       - name: Start modular HTTP application
         run: |
@@ -61,6 +61,15 @@ jobs:
           NEXORA_URL: http://127.0.0.1:8080
           NEXORA_GPU: '1'
         run: /tmp/nexora-browser-env/bin/python tests/editor_browser.py
+      - name: Advanced authoring and real peer transports
+        env:
+          NEXORA_URL: http://127.0.0.1:8080
+        run: /tmp/nexora-browser-env/bin/python tests/advanced_browser.py
+      - name: Advanced WebGPU image and text readback
+        env:
+          NEXORA_URL: http://127.0.0.1:8080
+          NEXORA_GPU: '1'
+        run: /tmp/nexora-browser-env/bin/python tests/advanced_browser.py
       - name: Capture reproducible source
         if: always()
         run: git archive --format=tar HEAD > editor-source.tar
